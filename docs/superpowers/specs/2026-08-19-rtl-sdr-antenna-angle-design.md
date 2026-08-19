@@ -128,9 +128,12 @@ replays a `.cu8` file.
 
 ### 3.3 `dsp/`
 
-- `OffsetMixer` — multiplies by `exp(-j 2 pi f_off t)` at the full sample rate,
-  using a recurrence-free table-lookup NCO so phase does not drift over a
-  60-second capture.
+- `OffsetMixer` — multiplies by `exp(+j 2 pi f_off t)` at the full sample rate.
+  The sign is positive because the hardware is tuned *above* the signal
+  (`fc + offset`), so the signal of interest appears at baseband frequency
+  `-offset` and must be shifted up to DC. Phase is held in an exact integer
+  modulo-`fs` accumulator feeding a 65536-entry lookup table, so it never
+  drifts over a 60-second capture.
 - `FirDecimator` — polyphase decimating FIR. Two stages: /8 then /4.
 - `ChannelFilter` — FIR low-pass, cutoff `channel_bw_hz / 2` (default 4 kHz),
   Kaiser window, ~60 dB stopband, run at the channel rate.
@@ -287,7 +290,7 @@ and the report flags any measurement where the two differ by more than 5 degrees
 ```
 tune hardware to (center_hz + offset_tune_hz)      default offset 250 kHz
   -> u8 IQ pairs -> complex<float>, (x - 127.4)/127.5
-  -> OffsetMixer  x exp(-j 2 pi offset_tune_hz t)  at 1.024 MHz
+  -> OffsetMixer  x exp(+j 2 pi offset_tune_hz t)  at 1.024 MHz
   -> FirDecimator /8   -> 128 kHz
   -> FirDecimator /4   -> 32 kHz   (channel rate)
   -> ChannelFilter low-pass +/- 4 kHz
@@ -466,6 +469,7 @@ then command-line flags, then interactive edits in the menu. The fully resolved
 | `--ppm` | 0 | Frequency correction |
 | `--offset-tune-hz` | 250000 | 0 disables, with a warning |
 | `--channel-bw` | 8000 | Hz, total channel width |
+| `--channel-rate` | 32000 | Hz, rate after decimation. `--sample-rate` must be an integer multiple of it, at least 2x |
 | `--bias-tee` | off | Explicit opt-in, warns when enabled |
 | `--duration` | 60 | Seconds of capture per angle |
 | `--settle` | 3 | Seconds after positioning, before capture |

@@ -1,0 +1,16 @@
+# Build output
+build/
+build-*/
+cmake-build-*/
+
+# Experiment output
+sessions/
+*.iq
+*.cu8
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+compile_commands.json

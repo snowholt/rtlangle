@@ -398,9 +398,15 @@ Same guard: events with `S_a <= N_a` yield no audio SNR, and the event is marked
 Both metrics are computed and stored for every event, always.
 `--rank-metric channel | audio | both`, **default `both`**. In `both` mode the
 report produces two independent rankings side by side and declares a single
-"best measured angle" only when the two rankings agree on the top angle. When
-they disagree it says so explicitly and prints both. Disagreement is reported as
-information, not hidden behind a default.
+"best measured angle" when the two rankings agree on the top angle.
+
+When they disagree, the report says so explicitly, prints both rankings, and
+then — in an interactive session — asks which metric to rank on and applies the
+answer, recording the choice as `summary.best_metric`. That is what picking the
+metric at report time means: the tool surfaces the conflict and takes a
+decision, rather than declining to produce a result. A non-interactive run
+leaves the best angle unset and keeps the warning, because there is nobody to
+ask.
 
 ### 6.7 Per-angle aggregation
 

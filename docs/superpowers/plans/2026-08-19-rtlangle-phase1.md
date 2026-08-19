@@ -1640,7 +1640,7 @@ std::vector<double> frame_powers(std::span<const std::complex<float>> x,
 
 `AmDemodulator` holds three pieces of state: two single-pole high-pass filters and one `FirDecimator` with decimation 1 for the 3400 Hz low-pass. The single-pole high-pass is `y[n] = a*(y[n-1] + x[n] - x[n-1])` with `a = exp(-2*pi*fc/fs)`; use `fc = 25.0` for the DC block and `fc = 300.0` for the speech-band high-pass. `process` writes `|in[i]|` into a scratch buffer, runs the DC block, the low-pass, then the 300 Hz high-pass, appending exactly `in.size()` samples so the audio stream stays sample-aligned with the channel stream — the SNR estimator relies on that alignment to frame both identically.
 
-`estimate_carrier_offset_hz` uses an FFTW `fftwf_plan_dft_1d` of size 4096 (or the largest power of two that fits when the input is shorter, minimum 256), a Hann window, and averages the magnitude spectra of up to 8 non-overlapping blocks. It searches the bins within `+/- search_hz` of DC for the maximum, then refines with parabolic interpolation on `log(magnitude)` of the three bins around the peak:
+`estimate_carrier_offset_hz` uses an FFTW `fftwf_plan_dft_1d` of size 4096 (or the largest power of two that fits when the input is shorter, minimum 256), a Hann window, and averages the magnitude spectra of **at most 8** non-overlapping blocks taken from the head of the span. The cap is deliberate: a long event must not turn this into an FFT loop proportional to event length. Do not remove it. It searches the bins within `+/- search_hz` of DC for the maximum, then refines with parabolic interpolation on `log(magnitude)` of the three bins around the peak:
 
 ```cpp
 const double y0 = std::log(mag[peak - 1]), y1 = std::log(mag[peak]), y2 = std::log(mag[peak + 1]);
@@ -1964,31 +1964,39 @@ TEST_CASE("minimum detectable SNR follows from the squelch threshold") {
 TEST_CASE("Test A: estimator recovers a known SNR from channel-rate frames") {
     const Config c = sweep_config();
     const double fs = 32000.0;
-    const std::size_t n = static_cast<std::size_t>(fs * 6.0);
     const std::vector<test::BurstSpec> bursts{{0.5, 0.8}, {2.0, 0.8}, {3.5, 0.8}, {5.0, 0.8}};
+    const double depth = 0.7;
 
-    for (double true_snr_db : {5.0, 10.0, 20.0, 30.0}) {
+    for (double nominal_snr_db : {5.0, 10.0, 20.0, 30.0}) {
         const double noise_power = 1e-4;
-        // AM with unit modulation index 0.7: mean power over the burst is
-        // amp^2 * (1 + depth^2/2). Solve for amp to hit the requested SNR.
-        const double depth = 0.7;
-        const double want_signal_power = noise_power * from_db(true_snr_db);
-        const double amp = std::sqrt(want_signal_power / (1.0 + depth * depth / 2.0));
+        // AM at modulation depth 0.7: mean power over a burst is
+        // amp^2 * (1 + depth^2/2). Solve for amp to hit the nominal SNR.
+        const double amp = std::sqrt(noise_power * from_db(nominal_snr_db)
+                                     / (1.0 + depth * depth / 2.0));
 
-        auto x = test::make_am_burst_signal(fs, 6.0, 0.0, 1000.0, depth, amp, bursts);
-        test::add_complex_awgn(x, noise_power, 424242u);
-        auto audio = demodulate(x, fs);
+        auto signal_only = test::make_am_burst_signal(fs, 6.0, 0.0, 1000.0, depth, amp, bursts);
+        auto noise_only  = test::make_complex_awgn(signal_only.size(), noise_power, 424242u);
+        std::vector<std::complex<float>> x(signal_only.size());
+        for (std::size_t i = 0; i < x.size(); ++i) x[i] = signal_only[i] + noise_only[i];
+
+        // The reference is MEASURED from the separated components, exactly as in
+        // Test B. Asserting against the nominal value instead would put the test
+        // inside the estimator's own known bias budget: the 20th-percentile noise
+        // floor reads about 0.12 dB low for 1024-sample frames, which biases the
+        // reported SNR high by the same amount before anything is actually wrong.
+        const double p_sig   = test::mean_power_over(signal_only, fs, bursts, 0.05);
+        const double p_noise = test::mean_power_over(noise_only, fs, {{0.0, 6.0}}, 0.0);
+        const double snr_true_db = to_db(p_sig / p_noise);
 
         SnrEstimator est(c);
-        Measurement m = est.analyze(x, audio, kEpoch);
+        Measurement m = est.analyze(x, demodulate(x, fs), kEpoch);
 
-        CAPTURE(true_snr_db);
+        CAPTURE(nominal_snr_db);
+        CAPTURE(snr_true_db);
         CHECK(m.status == MeasurementStatus::Ok);
         CHECK(m.valid_event_count == 4);
-        CHECK(m.channel_snr_db.median == doctest::Approx(true_snr_db).epsilon(0.0).scale(1.0));
-        CHECK(std::fabs(m.channel_snr_db.median - true_snr_db) < 0.5);
-        CHECK(m.noise_floor_dbfs == doctest::Approx(to_dbfs(noise_power)).epsilon(0.0).scale(1.0));
-        CHECK(std::fabs(m.noise_floor_dbfs - to_dbfs(noise_power)) < 0.5);
+        CHECK(std::fabs(m.channel_snr_db.median - snr_true_db) < 0.5);
+        CHECK(std::fabs(m.noise_floor_dbfs - to_dbfs(p_noise)) < 0.5);
     }
 }
 
@@ -2874,7 +2882,7 @@ bool write_atomic(const std::filesystem::path& target, std::string_view data, st
 }
 ```
 
-`reject_conflicting_overrides` compares the fields that would invalidate the comparison — `center_hz`, `sample_rate_hz`, `channel_rate_hz`, `requested_gain_tenth_db`, `agc`, `ppm`, `offset_tune_hz`, `channel_bw_hz`, `duration_s`, the angle spec, `rounds`, `order`, and every detection threshold — and returns `false` with a message naming the first difference in plain words (`"frequency"`, `"gain"`, `"sample rate"`, ...).
+`reject_conflicting_overrides` compares the fields that would invalidate the comparison — `center_hz`, `sample_rate_hz`, `channel_rate_hz`, `requested_gain_tenth_db`, `agc`, `ppm`, `offset_tune_hz`, `channel_bw_hz`, `duration_s`, the angle spec, `rounds`, `order`, and every detection threshold — and returns `false` with a message naming the first difference in plain words (`"frequency"`, `"gain"`, `"sample rate"`, ...) **and why it matters**, for example: `cannot resume: stored capture duration is 60 s but 90 s was requested. Events pool across rounds, so every capture in a session must be the same length for the comparison to hold.` A check whose reason is not stated gets deleted by the next person who hits it.
 
 - [ ] **Step 4: Run the tests** — `cmake --build build && ctest --test-dir build --output-on-failure -LE hardware`
 - [ ] **Step 5: Commit**
@@ -3294,10 +3302,12 @@ git commit -m "feat: add visit plan, capture runner and experiment controller"
   - `struct rtlangle::AngleSummary` (declared in `core/records.h` in Task 8) has the fields: `{ double planned_deg = 0; double mean_actual_deg = 0, max_actual_deviation_deg = 0; int captures = 0; double total_duration_s = 0; std::size_t valid_event_count = 0; SnrDistribution channel_snr_db, audio_snr_db; double signal_power_dbfs = kDbFloor, noise_floor_dbfs = kDbFloor; MeasurementStatus status = MeasurementStatus::InsufficientData; bool low_confidence = false; std::vector<std::string> notes; };`
   - `struct rtlangle::SessionSummary` has the fields: `{ std::vector<AngleSummary> angles; std::vector<double> ranking_channel_deg, ranking_audio_deg; std::optional<double> best_angle_deg; std::string best_metric; bool rankings_agree = false; std::vector<std::string> warnings; std::string headline; };`
   - `SessionSummary rtlangle::summarize(const std::vector<Measurement>&, const Config&)`
+  - `void rtlangle::apply_rank_metric(SessionSummary&, RankMetric)` — recomputes `best_angle_deg`, `best_metric` and the disagreement warning for an explicitly chosen metric. Calling it with `Channel` or `Audio` always yields a `best_angle_deg` when that metric ranked anything.
+  - `bool rtlangle::ui::resolve_ranking_interactively(SessionSummary&, ITerminalUi&)` — when the two rankings disagree, offers a menu (`Rank by channel SNR (CNR)` / `Rank by audio SNR` / `Report both, name no winner`) and applies the answer. Returns true when a metric was chosen. Never called in non-interactive mode.
   - `std::string rtlangle::ui::render_report(const SessionSummary&, const SessionMetadata&)` — the plain-text report, no ANSI codes, written to `report.txt`.
   - `void rtlangle::ui::print_report(ITerminalUi&, const SessionSummary&, const SessionMetadata&)` — the coloured terminal version.
 
-Aggregation pools every event from every round at a given planned angle, then re-summarises. An angle is `Ok` only when it has at least `min_valid_events` events and at least one capture whose own status was `Ok`. Ranking sorts `Ok` angles by median SNR descending; `insufficient_data` and `noise_floor_unreliable` angles are listed but never ranked. `best_angle_deg` is set only when the channel and audio rankings agree on the top angle, or when `rank_metric` names a single metric.
+Aggregation pools every event from every round at a given planned angle, then re-summarises. An angle is `Ok` only when it has at least `min_valid_events` events and at least one capture whose own status was `Ok`. Ranking sorts `Ok` angles by median SNR descending; `insufficient_data` and `noise_floor_unreliable` angles are listed but never ranked. `best_angle_deg` is set when `rank_metric` names a single metric, or when `rank_metric` is `both` and the two rankings agree on the top angle. When `both` is in force and they disagree, `summarize` leaves `best_angle_deg` empty, sets `rankings_agree` to false, and adds a warning — and the interactive report then asks the operator which metric to rank on and calls `apply_rank_metric`. That is what "pick at report time" means: the tool presents the conflict and takes an answer, rather than refusing to answer. A non-interactive run keeps the empty result and the warning.
 
 The headline is exactly:
 
@@ -3316,6 +3326,7 @@ Warnings are generated for every condition in spec §6.8, each as a complete sen
 #include <doctest/doctest.h>
 #include "experiment/summarizer.h"
 #include "ui/report_renderer.h"
+#include "ui/scripted_terminal_ui.h"
 
 #include <vector>
 
@@ -3379,6 +3390,40 @@ TEST_CASE("disagreeing rankings refuse to name a single best angle and say so") 
     bool warned = false;
     for (const auto& w : s.warnings) if (w.find("disagree") != std::string::npos) warned = true;
     CHECK(warned);
+
+    // "Pick at report time": choosing a metric resolves the conflict.
+    apply_rank_metric(s, RankMetric::Audio);
+    REQUIRE(s.best_angle_deg.has_value());
+    CHECK(s.best_angle_deg.value() == doctest::Approx(0.0));
+    CHECK(s.best_metric == "audio");
+
+    apply_rank_metric(s, RankMetric::Channel);
+    REQUIRE(s.best_angle_deg.has_value());
+    CHECK(s.best_angle_deg.value() == doctest::Approx(45.0));
+    CHECK(s.best_metric == "channel");
+}
+
+TEST_CASE("the interactive resolver asks which metric to rank on and applies the answer") {
+    std::vector<Measurement> ms{make(1, 0.0, 10.0, 6), make(1, 45.0, 12.0, 6)};
+    for (auto& e : ms[0].events) e.audio_snr_db = 30.0;
+    for (auto& e : ms[1].events) e.audio_snr_db = 5.0;
+    SessionSummary s = summarize(ms, cfg());
+    REQUIRE_FALSE(s.rankings_agree);
+
+    ui::ScriptedTerminalUi ui;
+    ui.push_menu_choice(1);                       // "Rank by audio SNR"
+    CHECK(ui::resolve_ranking_interactively(s, ui));
+    REQUIRE(s.best_angle_deg.has_value());
+    CHECK(s.best_angle_deg.value() == doctest::Approx(0.0));
+}
+
+TEST_CASE("agreeing rankings need no interactive resolution") {
+    std::vector<Measurement> ms{make(1, 0.0, 8.0, 6), make(1, 45.0, 20.0, 6)};
+    SessionSummary s = summarize(ms, cfg());
+    REQUIRE(s.rankings_agree);
+    ui::ScriptedTerminalUi ui;                    // nothing queued: it must not prompt
+    CHECK_FALSE(ui::resolve_ranking_interactively(s, ui));
+    CHECK(s.best_angle_deg.value() == doctest::Approx(45.0));
 }
 
 TEST_CASE("an angle below the minimum event count is listed but never ranked") {
@@ -3699,7 +3744,7 @@ TEST_CASE("end to end: resume continues exactly where the quit left off") {
 ```
 
 - [ ] **Step 2: Verify the build fails** — `set_pre_capture_hook` does not exist yet.
-- [ ] **Step 3: Add `void ExperimentController::set_pre_capture_hook(std::function<void(double)>)`,** called with the planned angle immediately before `source.flush()`. In production nothing sets it; it exists so a test source can model the antenna moving. Document that in the header.
+- [ ] **Step 3: Add `void ExperimentController::set_pre_capture_hook(std::function<void(double)>)`,** called with the planned angle immediately before `source.flush()`. It exists so a test source can model the antenna moving. Mark it `/// Test-only seam - production wiring must never set this.` in the header, and have `main.cpp` never call it, so it cannot quietly grow users.
 - [ ] **Step 4: Run the tests** — `cmake --build build && ctest --test-dir build --output-on-failure -LE hardware`
 - [ ] **Step 5: Commit**
 
@@ -3913,7 +3958,7 @@ The example must be generated, never hand-written, so it cannot drift from the r
   8. **The exact first-experiment command** (see Step 4).
   9. Worked CLI examples: multi-round alternating, randomised order, resume, synthetic replay, non-interactive.
   10. **The SNR definition, spelled out**: `SNR_lin = (P_event - N) / N` then `10*log10`, with `N` the 20th percentile of in-channel frame powers, `P_event` the median in-channel power over the event's frames, both measured over the +/-4 kHz channel. State plainly that `channel_snr_db` is a carrier-plus-sideband-to-noise ratio (a CNR), and that `audio_snr_db` is the post-demodulation speech-band figure.
-  11. **Limitations**, each stated plainly: the squelch threshold sets a floor of about 4.7 dB on the measurable SNR at default settings; airband traffic is intermittent and changes between angles, which is why multiple rounds and alternating order exist; the operator's entered angle is an estimate; the tool measures reception quality, not direction; and the state of hardware validation.
+  11. **Limitations**, each stated plainly: the squelch threshold sets a floor of about 4.7 dB on the measurable SNR at default settings; airband traffic is intermittent and changes between angles, which is why multiple rounds and alternating order exist -- and state plainly that alternating order *reduces* the confound between angle and elapsed time rather than removing it, since with 7 angles at 60 s a round still spans about 8 minutes, so the first and last angles are sampled further apart in time than the middle ones; more rounds shrink the effect further; the operator's entered angle is an estimate; the tool measures reception quality, not direction; and the state of hardware validation.
   12. A short "what Phase 1 does not include" list: no GUI, no servo or ESP32 control, no denoising.
 
 - [ ] **Step 3: Write `docs/architecture.md`** — the layer diagram from this plan's File Structure section, one paragraph per module explaining what it does and what it depends on, the four interfaces with their signatures, and a section titled "Adding a servo angle provider" showing that only a new `IAngleProvider` implementation and one line of wiring in `main.cpp` are required.

@@ -57,6 +57,10 @@ set(RTLANGLE_CORE_SOURCES
     src/persist/json_session_store.cpp
     src/persist/path_safety.cpp
     src/persist/session_loader.cpp
+    src/angle/manual_angle_provider.cpp
+    src/ui/ansi_terminal_ui.cpp
+    src/ui/safe_text.cpp
+    src/ui/scripted_terminal_ui.cpp
     src/source/iq_file_source.cpp
     src/source/rtlsdr_source.cpp
     src/source/sample_ring.cpp
@@ -108,12 +112,15 @@ set(RTLANGLE_TEST_SOURCES
     tests/test_persist.cpp
     tests/test_resume.cpp
     tests/test_rtlsdr_offline.cpp
+    tests/test_ui.cpp
+    tests/test_angle_provider.cpp
+    tests/test_terminal_pty.cpp
 )
 
 add_executable(rtlangle_tests ${RTLANGLE_TEST_SOURCES})
 target_include_directories(rtlangle_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(rtlangle_tests
-                      PRIVATE rtlangle_core doctest::doctest rtlangle_warnings)
+                      PRIVATE rtlangle_core doctest::doctest rtlangle_warnings util)
 
 if(BUILD_TESTING)
   if(COMMAND doctest_discover_tests)

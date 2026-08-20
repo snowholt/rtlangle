@@ -4,6 +4,7 @@
 
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace rtlangle::app {
@@ -33,6 +34,17 @@ ParseResult parse_cli(int argc, char** argv);
 // The same parser over an already-split argument list, for tests and for the
 // interactive menu.
 ParseResult parse_arguments(const std::vector<std::string>& arguments);
+
+// Applies one option to an existing configuration, exactly as the command line
+// would apply it: the same flag lookup, the same conversion, the same derived
+// defaults. `value` is ignored for a boolean flag beyond the true/false forms
+// the command line accepts.
+//
+// On any error the configuration and the key set are left untouched, so a
+// refused edit cannot half-apply. This is what lets the interactive screen
+// share one type-checking path with the parser rather than growing a second.
+std::vector<ValidationError> apply_option(Config&, std::set<std::string>& explicitly_set,
+                                          std::string_view flag, std::string_view value);
 
 // The usage text, listing every command and every flag the registry defines.
 std::string usage_text();

@@ -28,6 +28,9 @@ class ScriptedTerminalUi final : public ITerminalUi {
   // Every line the UI rendered, in order, already neutralised.
   const std::vector<std::string>& emitted() const { return emitted_; }
   const std::vector<Table>&       tables() const { return tables_; }
+  // The initial index each menu() call was given, so a screen that remembers
+  // where the cursor was can be asserted rather than described.
+  const std::vector<int>&         menu_initial_indices() const { return initial_indices_; }
   bool                            exhausted() const { return lines_.empty() && menu_choices_.empty(); }
 
   bool interactive() const override { return interactive_; }
@@ -50,6 +53,7 @@ class ScriptedTerminalUi final : public ITerminalUi {
   std::deque<bool>         confirms_;
   std::vector<std::string> emitted_;
   std::vector<Table>       tables_;
+  std::vector<int>         initial_indices_;
 };
 
 }  // namespace rtlangle::ui

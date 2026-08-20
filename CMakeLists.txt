@@ -65,6 +65,7 @@ set(RTLANGLE_CORE_SOURCES
     src/persist/json_session_store.cpp
     src/persist/path_safety.cpp
     src/persist/session_loader.cpp
+    src/app/setup_menu.cpp
     src/angle/manual_angle_provider.cpp
     src/ui/ansi_terminal_ui.cpp
     src/ui/report_renderer.cpp
@@ -132,6 +133,7 @@ set(RTLANGLE_TEST_SOURCES
     tests/test_cli.cpp
     tests/test_scan.cpp
     tests/test_commands.cpp
+    tests/test_setup_menu.cpp
     tests/test_end_to_end.cpp
 )
 

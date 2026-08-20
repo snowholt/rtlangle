@@ -152,6 +152,48 @@ bool to_json_value(const FieldSpec& f, std::string_view text, J& out, std::strin
 
 }  // namespace
 
+std::vector<ValidationError> apply_option(Config& cfg, std::set<std::string>& explicitly_set,
+                                          std::string_view flag, std::string_view value) {
+  std::vector<ValidationError> errors;
+
+  const FieldSpec* f = field_for_flag(flag);
+  if (f == nullptr) {
+    errors.push_back({std::string(flag),
+                      "unknown flag \"" + std::string(flag) +
+                          "\". Run rtlangle --help for the flags this build accepts."});
+    return errors;
+  }
+
+  J node;
+  std::string error;
+  if (!to_json_value(*f, value, node, error)) {
+    errors.push_back({std::string(f->key), std::string(f->flag) + ": " + error});
+    return errors;
+  }
+
+  // The whole document round-trips, so a value lands through the same
+  // deserialiser the command line and the session record both use.
+  J document;
+  to_json(document, cfg);
+  document[std::string(f->key)] = std::move(node);
+
+  Config updated;
+  try {
+    from_json(document, updated);
+  } catch (const J::exception& e) {
+    errors.push_back({std::string(f->key), e.what()});
+    return errors;
+  }
+
+  std::set<std::string> keys = explicitly_set;
+  keys.insert(std::string(f->key));
+  apply_derived_defaults(updated, keys);
+
+  cfg = std::move(updated);
+  explicitly_set = std::move(keys);
+  return errors;
+}
+
 std::string usage_text() {
   std::ostringstream os;
   os << kToolVersion << "\n\n";

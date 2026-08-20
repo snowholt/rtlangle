@@ -252,6 +252,30 @@ before any dwell is generated. The chosen step is the largest legal one,
 the airband. A regression fixture drives the placement with the old step and
 asserts the hole exists, so the coverage test cannot pass for the wrong reason.
 
+## One parser, two front ends
+
+The interactive setup screen does not carry its own table of types or bounds.
+`apply_option()` in `app/cli_parser.cpp` takes a flag and a value, looks the flag
+up in the same registry, converts it with the same `to_json_value`, round-trips
+the whole document through the same `from_json`, and runs the same
+`apply_derived_defaults`. A value the screen accepts is therefore exactly a value
+the command line would have accepted, and a bounds rule can only be stated once.
+On any error nothing is written back, so a refused edit cannot half-apply.
+
+The screen also carries the set of keys the operator actually chose into
+`run_command`. The resume classification of spec §11.5 distinguishes a stored
+value that differs from a *default* from one that differs from something the
+operator *chose*; without that set, an option set interactively would look like
+a default and a genuine conflict would go unreported. For the same reason the
+current value is shown inside the prompt text rather than offered as the
+prompt's default: a blank line means "leave it alone", and offering the value
+back would record an untouched field as chosen.
+
+The screen names about a dozen options and reaches the rest through a free-form
+row that takes a flag verbatim. That is a deliberate trade: naming every one of
+the 59 registry fields would need a help string and a bounds hint per field, and
+the free-form row costs nothing in coverage.
+
 ## Menu painting
 
 A menu repaints by moving the cursor up over the block it last drew

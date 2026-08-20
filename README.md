@@ -306,7 +306,41 @@ rtlangle report <session-dir>  re-render a report from a stored session
 rtlangle --help | --version
 ```
 
-Invoking `rtlangle` with no arguments on a terminal opens the main menu.
+Invoking `rtlangle` with no arguments on a terminal opens the main menu. Its
+first entry opens a **Set up experiment** screen, so nothing has to be decided
+before you start:
+
+```
+  Set up experiment
+
+> Centre frequency   (not set)
+  Angles             0 to 90 step 15  (7 angles)
+  Rounds             2
+  Visit order        alternating
+  Capture duration   60 s
+  Settle delay       3 s
+  Gain               max
+  Device index       0
+  Source             rtlsdr
+  Session label      (none)
+  Angle reference    (none)
+  Other option...    type any flag
+  Start              blocked by --freq
+  Back               return without starting
+
+  Up/Down or j/k move | Enter select | q quit
+```
+
+Each row shows the value it currently holds, and the `Start` row shows what is
+stopping the run until nothing is. Angles are typed as `0:15:90` or as a list
+like `0,45,90`. `Other option...` takes any flag from the tables below verbatim
+(`--noise-percentile 25`, `--min-event-ms=450`), so the screen names the options
+you set often without hiding the rest.
+
+Anything you pass on the command line is where the screen starts, so the two
+ways of setting an option compose rather than compete. Every edit goes through
+the same parser the command line uses, which is why a value the screen accepts
+is exactly a value `rtlangle run` would have accepted.
 
 **A flag a command does not use is a usage error naming both, with exit code 2.**
 Silently ignoring it would let you believe a setting took effect when it could

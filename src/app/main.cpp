@@ -35,7 +35,9 @@ int main(int argc, char** argv) {
   }
 
   if (parsed.command.empty()) {
-    if (terminal.interactive()) return app::main_menu(parsed.config, terminal);
+    if (terminal.interactive()) {
+      return app::main_menu(parsed.config, parsed.explicitly_set, terminal);
+    }
     std::fprintf(stderr, "%s", app::usage_text().c_str());
     return 2;
   }

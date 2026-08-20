@@ -10,6 +10,7 @@ namespace rtlangle::ui {
 int ScriptedTerminalUi::menu(std::string_view title, std::span<const MenuItem> items,
                              int initial_index) {
   emitted_.push_back("menu: " + safe_text(title));
+  initial_indices_.push_back(initial_index);
   for (const MenuItem& item : items) emitted_.push_back("  - " + safe_text(item.label));
 
   if (menu_choices_.empty()) return -1;
@@ -19,7 +20,6 @@ int ScriptedTerminalUi::menu(std::string_view title, std::span<const MenuItem> i
   if (items.empty()) return -1;
   // An out-of-range choice clamps, as an arrow-key menu's cursor does, rather
   // than indexing past the end.
-  (void)initial_index;
   return std::clamp(chosen, 0, static_cast<int>(items.size()) - 1);
 }
 

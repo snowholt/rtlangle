@@ -2,16 +2,17 @@
 
 #include "app/run_command.h"
 #include "app/scan_command.h"
+#include "app/setup_menu.h"
 #include "core/version.h"
 
 #include <array>
-#include <filesystem>
 
 namespace rtlangle::app {
 
-int main_menu(const Config& cfg, ui::ITerminalUi& terminal) {
+int main_menu(const Config& cfg, const std::set<std::string>& explicitly_set,
+              ui::ITerminalUi& terminal) {
   const std::array<ui::MenuItem, 6> items = {
-      ui::MenuItem{"Start new experiment", "needs a frequency"},
+      ui::MenuItem{"Start new experiment", "set frequency, angles, and timing"},
       ui::MenuItem{"Resume session", "continue a paused or interrupted session"},
       ui::MenuItem{"Scan airband (find active channels)", ""},
       ui::MenuItem{"Device check / gain table", ""},
@@ -23,26 +24,13 @@ int main_menu(const Config& cfg, ui::ITerminalUi& terminal) {
     const int choice = terminal.menu(std::string(kToolVersion), items, 0);
     switch (choice) {
       case 0: {
-        Config run_config = cfg;
-        if (!run_config.center_hz.has_value()) {
-          const auto answer = terminal.prompt_line("Centre frequency, for example 118.35M", "");
-          if (!answer.has_value() || answer->empty()) {
-            terminal.warn("A frequency is required to start an experiment.");
-            continue;
-          }
-          const auto hz = parse_frequency(*answer);
-          if (!hz.has_value()) {
-            terminal.error("\"" + *answer + "\" is not a frequency.");
-            continue;
-          }
-          run_config.center_hz = static_cast<std::uint32_t>(*hz + 0.5);
-        }
-        const auto errors = validate(run_config);
-        if (!errors.empty()) {
-          for (const ValidationError& e : errors) terminal.error(e.message);
-          continue;
-        }
-        return run_command(run_config, terminal);
+        // Whatever the operator passed on the command line is where the screen
+        // starts, so the two ways of setting an option compose rather than
+        // compete.
+        std::set<std::string> keys = explicitly_set;
+        const auto chosen = setup_experiment(cfg, keys, terminal);
+        if (!chosen.has_value()) continue;
+        return run_command(*chosen, terminal, {}, keys);
       }
       case 1: {
         const auto answer = terminal.prompt_line("Session directory to resume", "");

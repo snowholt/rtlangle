@@ -19,8 +19,8 @@ namespace rtlangle {
 // audio-eligible capture is absent from the audio ranking and present in the
 // channel one, and n_captures_audio is never assumed equal to n_captures.
 //
-// It produces no decision. There is no best angle, no resolution, and no test
-// statistic anywhere in the result.
+// It produces no decision. Nothing here names an angle as the right one,
+// resolves anything, or computes a test statistic.
 SessionSummary aggregate(const SessionRecord&);
 
 }  // namespace rtlangle

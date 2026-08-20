@@ -61,29 +61,33 @@ SessionState state_of(const fs::path& dir) {
   return rec.state;
 }
 
-// A store decorator that also records the state the moment the controller
-// returns, so the app layer's exclusive ownership of the terminal states can be
-// asserted from this side too.
-struct RecordingStore final : ISessionStore {
-  std::unique_ptr<JsonSessionStore> inner;
-  std::vector<std::string>*         log = nullptr;
-  std::optional<CommitOutcome>      commit_outcome;
-  std::optional<CommitOutcome>      pause_outcome;
-  std::optional<CommitOutcome>      finalize_outcome;
-  std::optional<CommitOutcome>      abort_outcome;
+// run_command OWNS the store and destroys it when it returns, so the counters a
+// test reads afterwards cannot live inside the decorator. They live here, and
+// the decorator points at them.
+struct StoreProbe {
+  std::optional<CommitOutcome> commit_outcome;
+  std::optional<CommitOutcome> pause_outcome;
+  std::optional<CommitOutcome> finalize_outcome;
+  std::optional<CommitOutcome> abort_outcome;
   int pause_calls = 0;
   int finalize_calls = 0;
   int abort_calls = 0;
+  std::vector<std::string>* log = nullptr;
+};
+
+struct RecordingStore final : ISessionStore {
+  std::unique_ptr<JsonSessionStore> inner;
+  StoreProbe*                       probe = nullptr;
 
   const SessionRecord& record() const override { return inner->record(); }
   std::string begin_receiver_segment(const SourceInfo& a) override {
-    if (log != nullptr) log->push_back("store.begin_receiver_segment");
+    if (probe->log != nullptr) probe->log->push_back("store.begin_receiver_segment");
     return inner->begin_receiver_segment(a);
   }
   CommitResult commit_visit(const VisitCommit& v) override {
-    if (commit_outcome.has_value()) {
+    if (probe->commit_outcome.has_value()) {
       CommitResult r;
-      r.outcome = *commit_outcome;
+      r.outcome = *probe->commit_outcome;
       r.detail = "injected";
       return r;
     }
@@ -91,33 +95,33 @@ struct RecordingStore final : ISessionStore {
   }
   CommitResult reload_from_disk() override { return inner->reload_from_disk(); }
   CommitResult pause(const SessionSummary& s) override {
-    ++pause_calls;
-    if (log != nullptr) log->push_back("store.pause");
-    if (pause_outcome.has_value()) {
+    ++probe->pause_calls;
+    if (probe->log != nullptr) probe->log->push_back("store.pause");
+    if (probe->pause_outcome.has_value()) {
       CommitResult r;
-      r.outcome = *pause_outcome;
+      r.outcome = *probe->pause_outcome;
       r.detail = "injected";
       return r;
     }
     return inner->pause(s);
   }
   CommitResult finalize(const SessionSummary& s) override {
-    ++finalize_calls;
-    if (log != nullptr) log->push_back("store.finalize");
-    if (finalize_outcome.has_value()) {
+    ++probe->finalize_calls;
+    if (probe->log != nullptr) probe->log->push_back("store.finalize");
+    if (probe->finalize_outcome.has_value()) {
       CommitResult r;
-      r.outcome = *finalize_outcome;
+      r.outcome = *probe->finalize_outcome;
       r.detail = "injected";
       return r;
     }
     return inner->finalize(s);
   }
   CommitResult abort(const SessionSummary& s, std::string_view reason) override {
-    ++abort_calls;
-    if (log != nullptr) log->push_back("store.abort");
-    if (abort_outcome.has_value()) {
+    ++probe->abort_calls;
+    if (probe->log != nullptr) probe->log->push_back("store.abort");
+    if (probe->abort_outcome.has_value()) {
       CommitResult r;
-      r.outcome = *abort_outcome;
+      r.outcome = *probe->abort_outcome;
       r.detail = "injected";
       return r;
     }
@@ -126,9 +130,10 @@ struct RecordingStore final : ISessionStore {
   void flush_exports() override { inner->flush_exports(); }
 };
 
-// Builds hooks that record the orchestration order and hand back a decorated
-// store the test keeps a pointer to.
-RunHooks recording_hooks(std::vector<std::string>& log, RecordingStore*& store_out) {
+// Builds hooks that record the orchestration order and route every store call
+// through a probe the caller owns.
+RunHooks recording_hooks(std::vector<std::string>& log, StoreProbe& probe) {
+  probe.log = &log;
   RunHooks hooks;
   hooks.observe = [&log](std::string_view name) { log.emplace_back(name); };
   hooks.make_source = [&log](const Config& cfg, std::string& error) {
@@ -143,15 +148,14 @@ RunHooks recording_hooks(std::vector<std::string>& log, RecordingStore*& store_o
     p.duty = 0.3;
     return std::unique_ptr<ISampleSource>(new SyntheticSource(p));
   };
-  hooks.make_store = [&log, &store_out](SessionDir dir, SessionRecord record) {
+  hooks.make_store = [&probe](SessionDir dir, SessionRecord record) {
     auto decorated = std::make_unique<RecordingStore>();
     decorated->inner = std::make_unique<JsonSessionStore>(std::move(dir), std::move(record));
     decorated->inner->set_report_renderer(
         [](const SessionRecord& r, const SessionSummary& s) {
           return ui::render_report(r, s, false);
         });
-    decorated->log = &log;
-    store_out = decorated.get();
+    decorated->probe = &probe;
     return std::unique_ptr<ISessionStore>(std::move(decorated));
   };
   return hooks;
@@ -167,8 +171,8 @@ TEST_CASE("a new run follows the orchestration sequence in order") {
   ScriptedTerminalUi terminal(false);
 
   std::vector<std::string> log;
-  RecordingStore* store = nullptr;
-  RunHooks hooks = recording_hooks(log, store);
+  StoreProbe probe;
+  RunHooks hooks = recording_hooks(log, probe);
 
   CHECK(run_command(cfg, terminal, hooks) == 0);
 
@@ -204,14 +208,13 @@ TEST_CASE("Completed maps to finalize and a completed state, exit 0") {
   const Config cfg = synthetic_run(temp);
   ScriptedTerminalUi terminal(false);
   std::vector<std::string> log;
-  RecordingStore* store = nullptr;
-  RunHooks hooks = recording_hooks(log, store);
+  StoreProbe probe;
+  RunHooks hooks = recording_hooks(log, probe);
 
   CHECK(run_command(cfg, terminal, hooks) == 0);
-  REQUIRE(store != nullptr);
-  CHECK(store->finalize_calls == 1);
-  CHECK(store->pause_calls == 0);
-  CHECK(store->abort_calls == 0);
+  CHECK(probe.finalize_calls == 1);
+  CHECK(probe.pause_calls == 0);
+  CHECK(probe.abort_calls == 0);
 
   const fs::path dir = only_session_under(cfg.session_root);
   REQUIRE(!dir.empty());
@@ -230,8 +233,8 @@ TEST_CASE("QuitRequested maps to pause and a paused state, exit 0") {
   const Config cfg = synthetic_run(temp);
   ScriptedTerminalUi terminal(false);
   std::vector<std::string> log;
-  RecordingStore* store = nullptr;
-  RunHooks hooks = recording_hooks(log, store);
+  StoreProbe probe;
+  RunHooks hooks = recording_hooks(log, probe);
   hooks.make_provider = [](const Config&, ui::ITerminalUi&) {
     struct QuitAfterOne final : IAngleProvider {
       int calls = 0;
@@ -248,10 +251,9 @@ TEST_CASE("QuitRequested maps to pause and a paused state, exit 0") {
   };
 
   CHECK(run_command(cfg, terminal, hooks) == 0);
-  REQUIRE(store != nullptr);
-  CHECK(store->pause_calls == 1);
-  CHECK(store->finalize_calls == 0);
-  CHECK(store->abort_calls == 0);
+  CHECK(probe.pause_calls == 1);
+  CHECK(probe.finalize_calls == 0);
+  CHECK(probe.abort_calls == 0);
 
   const fs::path dir = only_session_under(cfg.session_root);
   CHECK(state_of(dir) == SessionState::Paused);
@@ -267,26 +269,14 @@ TEST_CASE("Failed maps to abort, an aborted state with a reason, exit 1") {
   const Config cfg = synthetic_run(temp);
   ScriptedTerminalUi terminal(false);
   std::vector<std::string> log;
-  RecordingStore* store = nullptr;
-  RunHooks hooks = recording_hooks(log, store);
-  RecordingStore* captured = nullptr;
-  hooks.make_store = [&captured](SessionDir dir, SessionRecord record) {
-    auto decorated = std::make_unique<RecordingStore>();
-    decorated->inner = std::make_unique<JsonSessionStore>(std::move(dir), std::move(record));
-    decorated->inner->set_report_renderer(
-        [](const SessionRecord& r, const SessionSummary& s) {
-          return ui::render_report(r, s, false);
-        });
-    decorated->commit_outcome = CommitOutcome::NotCommitted;
-    captured = decorated.get();
-    return std::unique_ptr<ISessionStore>(std::move(decorated));
-  };
+  StoreProbe probe;
+  RunHooks hooks = recording_hooks(log, probe);
+  probe.commit_outcome = CommitOutcome::NotCommitted;
 
   CHECK(run_command(cfg, terminal, hooks) == 1);
-  REQUIRE(captured != nullptr);
-  CHECK(captured->abort_calls == 1);
-  CHECK(captured->finalize_calls == 0);
-  CHECK(captured->pause_calls == 0);
+  CHECK(probe.abort_calls == 1);
+  CHECK(probe.finalize_calls == 0);
+  CHECK(probe.pause_calls == 0);
 
   const fs::path dir = only_session_under(cfg.session_root);
   SessionRecord rec;
@@ -305,21 +295,13 @@ TEST_CASE("a store that cannot record its own failure leaves the record untouche
   const Config cfg = synthetic_run(temp);
   ScriptedTerminalUi terminal(false);
   std::vector<std::string> log;
-  RecordingStore* store = nullptr;
-  RunHooks hooks = recording_hooks(log, store);
-  RecordingStore* captured = nullptr;
-  hooks.make_store = [&captured](SessionDir dir, SessionRecord record) {
-    auto decorated = std::make_unique<RecordingStore>();
-    decorated->inner = std::make_unique<JsonSessionStore>(std::move(dir), std::move(record));
-    decorated->commit_outcome = CommitOutcome::NotCommitted;
-    decorated->abort_outcome = CommitOutcome::NotCommitted;
-    captured = decorated.get();
-    return std::unique_ptr<ISessionStore>(std::move(decorated));
-  };
+  StoreProbe probe;
+  RunHooks hooks = recording_hooks(log, probe);
+  probe.commit_outcome = CommitOutcome::NotCommitted;
+  probe.abort_outcome = CommitOutcome::NotCommitted;
 
   CHECK(run_command(cfg, terminal, hooks) == 1);
-  REQUIRE(captured != nullptr);
-  CHECK(captured->abort_calls == 1);
+  CHECK(probe.abort_calls == 1);
 
   const fs::path dir = only_session_under(cfg.session_root);
   // Nothing was ever committed, so there is no session.json at all: the record
@@ -333,23 +315,15 @@ TEST_CASE("a NotCommitted from finalize does not abort and the directory still r
   const Config cfg = synthetic_run(temp);
   ScriptedTerminalUi terminal(false);
   std::vector<std::string> log;
-  RecordingStore* store = nullptr;
-  RunHooks hooks = recording_hooks(log, store);
-  RecordingStore* captured = nullptr;
-  hooks.make_store = [&captured](SessionDir dir, SessionRecord record) {
-    auto decorated = std::make_unique<RecordingStore>();
-    decorated->inner = std::make_unique<JsonSessionStore>(std::move(dir), std::move(record));
-    decorated->finalize_outcome = CommitOutcome::NotCommitted;
-    captured = decorated.get();
-    return std::unique_ptr<ISessionStore>(std::move(decorated));
-  };
+  StoreProbe probe;
+  RunHooks hooks = recording_hooks(log, probe);
+  probe.finalize_outcome = CommitOutcome::NotCommitted;
 
   CHECK(run_command(cfg, terminal, hooks) == 1);
-  REQUIRE(captured != nullptr);
-  CHECK(captured->finalize_calls == 1);
+  CHECK(probe.finalize_calls == 1);
   // No abort is attempted: aborting here would make terminal a session that a
   // later invocation could still finish.
-  CHECK(captured->abort_calls == 0);
+  CHECK(probe.abort_calls == 0);
 
   const fs::path dir = only_session_under(cfg.session_root);
   CHECK(state_of(dir) == SessionState::Running);
@@ -363,16 +337,9 @@ TEST_CASE("a NotCommitted from pause behaves the same way") {
   const Config cfg = synthetic_run(temp);
   ScriptedTerminalUi terminal(false);
   std::vector<std::string> log;
-  RecordingStore* store = nullptr;
-  RunHooks hooks = recording_hooks(log, store);
-  RecordingStore* captured = nullptr;
-  hooks.make_store = [&captured](SessionDir dir, SessionRecord record) {
-    auto decorated = std::make_unique<RecordingStore>();
-    decorated->inner = std::make_unique<JsonSessionStore>(std::move(dir), std::move(record));
-    decorated->pause_outcome = CommitOutcome::NotCommitted;
-    captured = decorated.get();
-    return std::unique_ptr<ISessionStore>(std::move(decorated));
-  };
+  StoreProbe probe;
+  RunHooks hooks = recording_hooks(log, probe);
+  probe.pause_outcome = CommitOutcome::NotCommitted;
   hooks.make_provider = [](const Config&, ui::ITerminalUi&) {
     struct AlwaysQuit final : IAngleProvider {
       std::string_view name() const override { return "scripted"; }
@@ -388,9 +355,8 @@ TEST_CASE("a NotCommitted from pause behaves the same way") {
   };
 
   CHECK(run_command(cfg, terminal, hooks) == 1);
-  REQUIRE(captured != nullptr);
-  CHECK(captured->pause_calls == 1);
-  CHECK(captured->abort_calls == 0);
+  CHECK(probe.pause_calls == 1);
+  CHECK(probe.abort_calls == 0);
 
   const fs::path dir = only_session_under(cfg.session_root);
   CHECK(state_of(dir) == SessionState::Running);
@@ -419,8 +385,8 @@ TEST_CASE("resume completes the session, and resuming a completed one is refused
   // Quit after the first visit.
   {
     std::vector<std::string> log;
-    RecordingStore* store = nullptr;
-    RunHooks hooks = recording_hooks(log, store);
+    StoreProbe probe;
+    RunHooks hooks = recording_hooks(log, probe);
     hooks.make_provider = [](const Config&, ui::ITerminalUi&) {
       struct QuitAfterOne final : IAngleProvider {
         int calls = 0;
@@ -446,8 +412,8 @@ TEST_CASE("resume completes the session, and resuming a completed one is refused
     Config resume_cfg = cfg;
     resume_cfg.resume_dir = dir.string();
     std::vector<std::string> log;
-    RecordingStore* store = nullptr;
-    RunHooks hooks = recording_hooks(log, store);
+    StoreProbe probe;
+    RunHooks hooks = recording_hooks(log, probe);
     CHECK(run_command(resume_cfg, terminal, hooks) == 0);
     CHECK(std::count(log.begin(), log.end(), "load_session") == 1);
   }
@@ -467,8 +433,8 @@ TEST_CASE("resume completes the session, and resuming a completed one is refused
     again.resume_dir = dir.string();
     ScriptedTerminalUi refused(false);
     std::vector<std::string> log;
-    RecordingStore* store = nullptr;
-    RunHooks hooks = recording_hooks(log, store);
+    StoreProbe probe;
+    RunHooks hooks = recording_hooks(log, probe);
     CHECK(run_command(again, refused, hooks) == 2);
     bool named = false;
     for (const std::string& line : refused.emitted()) {
@@ -484,8 +450,8 @@ TEST_CASE("a resume that would change an experiment-defining field is refused") 
   ScriptedTerminalUi terminal(false);
   {
     std::vector<std::string> log;
-    RecordingStore* store = nullptr;
-    RunHooks hooks = recording_hooks(log, store);
+    StoreProbe probe;
+    RunHooks hooks = recording_hooks(log, probe);
     hooks.make_provider = [](const Config&, ui::ITerminalUi&) {
       struct AlwaysQuit final : IAngleProvider {
         std::string_view name() const override { return "scripted"; }
@@ -509,8 +475,8 @@ TEST_CASE("a resume that would change an experiment-defining field is refused") 
 
   ScriptedTerminalUi refused(false);
   std::vector<std::string> log;
-  RecordingStore* store = nullptr;
-  RunHooks hooks = recording_hooks(log, store);
+  StoreProbe probe;
+  RunHooks hooks = recording_hooks(log, probe);
   CHECK(run_command(changed, refused, hooks, {"duration_s"}) == 2);
   bool named = false;
   for (const std::string& line : refused.emitted()) {
@@ -525,8 +491,8 @@ TEST_CASE("report re-renders a stored session and changes nothing it recorded") 
   {
     ScriptedTerminalUi terminal(false);
     std::vector<std::string> log;
-    RecordingStore* store = nullptr;
-    RunHooks hooks = recording_hooks(log, store);
+    StoreProbe probe;
+    RunHooks hooks = recording_hooks(log, probe);
     CHECK(run_command(cfg, terminal, hooks) == 0);
   }
   const fs::path dir = only_session_under(cfg.session_root);
@@ -551,8 +517,8 @@ TEST_CASE("a stricter reporting threshold at report time adds a warning and move
   {
     ScriptedTerminalUi terminal(false);
     std::vector<std::string> log;
-    RecordingStore* store = nullptr;
-    RunHooks hooks = recording_hooks(log, store);
+    StoreProbe probe;
+    RunHooks hooks = recording_hooks(log, probe);
     CHECK(run_command(cfg, terminal, hooks) == 0);
   }
   const fs::path dir = only_session_under(cfg.session_root);
@@ -580,7 +546,11 @@ TEST_CASE("a stricter reporting threshold at report time adds a warning and move
   CHECK(read_whole(dir / kSessionFileName) == stored);
 }
 
+#if !RTLANGLE_WITH_RTLSDR
 TEST_CASE("the device check reports without a device and never suggests a broad kill") {
+  // Only in the no-device build: with device support compiled in this command
+  // opens every enumerated device to read its gain table, which is a hardware
+  // interaction and belongs to the hardware-labelled run.
   Config cfg;
   ScriptedTerminalUi terminal(false);
   const int code = device_check_command(cfg, terminal);
@@ -590,5 +560,6 @@ TEST_CASE("the device check reports without a device and never suggests a broad 
     CHECK(line.find("pkill") == std::string::npos);
   }
 }
+#endif
 
 }  // TEST_SUITE

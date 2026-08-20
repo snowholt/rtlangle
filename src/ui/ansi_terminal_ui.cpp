@@ -100,8 +100,9 @@ void install_signal_handlers() {
   ::sigaction(SIGTERM, &action, nullptr);
 }
 
-AnsiTerminalUi::AnsiTerminalUi(bool no_color)
-    : interactive_(::isatty(STDIN_FILENO) != 0 && ::isatty(STDOUT_FILENO) != 0),
+AnsiTerminalUi::AnsiTerminalUi(bool no_color, bool non_interactive)
+    : interactive_(!non_interactive && ::isatty(STDIN_FILENO) != 0 &&
+                   ::isatty(STDOUT_FILENO) != 0),
       color_(color_enabled(no_color)) {}
 
 void AnsiTerminalUi::write_line(const char* color, std::string_view prefix,

@@ -25,7 +25,7 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  ui::AnsiTerminalUi terminal(parsed.config.no_color);
+  ui::AnsiTerminalUi terminal(parsed.config.no_color, parsed.config.non_interactive);
   ui::install_signal_handlers();
 
   if (!parsed.errors.empty()) {

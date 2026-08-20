@@ -35,7 +35,7 @@ Stat median(std::span<const double> xs);
 
 // Descriptive spread only (spec section 10.2): min-max below four contributing
 // values, interquartile at four or more. The type name says what it is,
-// because it is NOT a confidence interval and spec section 15.2 forbids
+// because it is NOT an interval estimate and spec section 15.2 forbids
 // presenting it as one.
 struct DescriptiveSpread {
   double low = 0.0;

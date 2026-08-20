@@ -120,6 +120,12 @@ TEST_CASE("a non-interactive terminal never enters raw mode") {
   CHECK(ansi.interactive() == both_ttys);
   // Nothing has entered raw mode merely by constructing the UI.
   CHECK_FALSE(raw_mode_active());
+
+  // --non-interactive wins over whatever isatty reports. Without this the flag
+  // would be defeated from a real terminal: the run would still stop at the
+  // first prompt, which is the one thing it exists to prevent.
+  AnsiTerminalUi forced(false, true);
+  CHECK_FALSE(forced.interactive());
 }
 
 TEST_CASE("the colour predicate is a rule, not a constant") {

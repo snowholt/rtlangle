@@ -25,7 +25,11 @@ bool raw_mode_active();
 
 class AnsiTerminalUi final : public ITerminalUi {
  public:
-  explicit AnsiTerminalUi(bool no_color = false);
+  // `non_interactive` is the operator saying there is nobody at the keyboard,
+  // and it wins over what isatty reports. Without it a run started from a real
+  // terminal with --non-interactive would still stop at the first prompt, which
+  // is the one thing the flag exists to prevent.
+  explicit AnsiTerminalUi(bool no_color = false, bool non_interactive = false);
 
   bool interactive() const override { return interactive_; }
 

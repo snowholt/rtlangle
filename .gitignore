@@ -5,6 +5,9 @@ cmake-build-*/
 
 # Experiment output
 sessions/
+# ...except the committed example, which the tool generates and a test
+# regenerates and compares against.
+!examples/session-synthetic/
 *.iq
 *.cu8
 

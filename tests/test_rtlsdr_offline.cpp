@@ -271,39 +271,44 @@ TEST_CASE("the serial of the selected device is carried into the record") {
 }
 
 TEST_CASE("with device support disabled, the device source names the CMake option") {
+#if RTLANGLE_WITH_RTLSDR
+  // Deliberately not exercised with device support compiled in. `ctest -LE
+  // hardware` must be genuinely hardware-free, and opening a device is a
+  // hardware interaction even when it fails: how long it takes depends on what
+  // else is holding the device. Everything about the device path that can be
+  // decided without one - the error mapping, the gain snapping, the
+  // configuration sequence - is tested above from its return codes.
+#else
   Config cfg = device_config();
   cfg.source_spec = "rtlsdr";
   std::string error;
   const auto source = make_source(cfg, error);
-#if RTLANGLE_WITH_RTLSDR
-  // With support compiled in the outcome depends on whether a device is
-  // attached and free; either way it is not the CMake-option refusal.
-  if (source == nullptr) {
-    CHECK(error.find("RTLANGLE_WITH_RTLSDR=OFF") == std::string::npos);
-    CHECK_FALSE(error.empty());
-  }
-#else
   CHECK(source == nullptr);
   CHECK(error.find("RTLANGLE_WITH_RTLSDR=OFF") != std::string::npos);
   CHECK(error.find("--source synthetic") != std::string::npos);
 #endif
 }
 
-TEST_CASE("the device report is buildable with or without a device attached") {
-  const app::DeviceReport report = app::describe_devices(device_config());
-  CHECK_FALSE(report.lines.empty());
-  CHECK(report.lines[0].rfind("rtlangle", 0) == 0);
-
-  // Whatever the outcome, the report never suggests a broad pattern kill.
-  for (const std::string& line : report.lines) {
-    CHECK(line.find("pkill") == std::string::npos);
-  }
-
+TEST_CASE("the gain table renders as decibels") {
   CHECK(app::format_gain_table({}).find("no gain table") != std::string::npos);
   const std::string table = app::format_gain_table({0, 144, 496});
   CHECK(table.find("0.0") != std::string::npos);
   CHECK(table.find("14.4") != std::string::npos);
   CHECK(table.find("49.6 dB") != std::string::npos);
+  // Whatever a device reports, the report never suggests a broad pattern kill.
+  CHECK(table.find("pkill") == std::string::npos);
+
+#if !RTLANGLE_WITH_RTLSDR
+  // Without device support the report is buildable and says so; with it, the
+  // report opens devices to read their gain tables and therefore belongs to the
+  // hardware-labelled run rather than to this one.
+  const app::DeviceReport report = app::describe_devices(device_config());
+  CHECK_FALSE(report.lines.empty());
+  CHECK(report.lines[0].rfind("rtlangle", 0) == 0);
+  for (const std::string& line : report.lines) {
+    CHECK(line.find("pkill") == std::string::npos);
+  }
+#endif
 }
 
 }  // TEST_SUITE

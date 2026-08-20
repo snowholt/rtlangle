@@ -132,10 +132,15 @@ set(RTLANGLE_TEST_SOURCES
     tests/test_cli.cpp
     tests/test_scan.cpp
     tests/test_commands.cpp
+    tests/test_end_to_end.cpp
 )
 
 add_executable(rtlangle_tests ${RTLANGLE_TEST_SOURCES})
 target_include_directories(rtlangle_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+# The end-to-end test compares the committed example session against a freshly
+# generated one, so it needs to find the source tree from the build tree.
+target_compile_definitions(rtlangle_tests
+                           PRIVATE RTLANGLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(rtlangle_tests
                       PRIVATE rtlangle_core doctest::doctest rtlangle_warnings util)
 

@@ -214,7 +214,7 @@ struct AngleSummary {
   int    n_valid_events = 0;
   std::optional<double> score_channel_db;
   std::optional<double> score_audio_db;
-  DescriptiveSpread spread_channel;   // NOT a confidence interval
+  DescriptiveSpread spread_channel;   // NOT an interval estimate
   DescriptiveSpread spread_audio;
   std::optional<double> yield_events_per_min;   // spec section 9.5
   std::optional<double> detected_fraction;

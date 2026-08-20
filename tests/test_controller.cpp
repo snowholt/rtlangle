@@ -296,7 +296,7 @@ TEST_CASE("a post-capture retry is exactly one commit carrying both facts") {
   SyntheticSource source(params_for(h.cfg));
   FixedAngleProvider provider;
 
-  ScriptedTerminalUi terminal(false);
+  ScriptedTerminalUi terminal(true);   // an operator is at the menu
   terminal.push_menu_choice(0);   // Retry
   terminal.push_menu_choice(1);   // then Accept as-is
   terminal.push_menu_choice(1);   // and Accept as-is for the remaining visits
@@ -333,7 +333,7 @@ TEST_CASE("accepting a non-ok capture as-is completes the visit without ranking 
   SyntheticSource source(params_for(h.cfg));
   FixedAngleProvider provider;
 
-  ScriptedTerminalUi terminal(false);
+  ScriptedTerminalUi terminal(true);   // an operator is at the menu
   for (int i = 0; i < 3; ++i) terminal.push_menu_choice(1);   // Accept as-is
   ExperimentController controller(source, provider, terminal, *h.store, h.chain, h.cfg,
                                   h.segment);
@@ -347,6 +347,33 @@ TEST_CASE("accepting a non-ok capture as-is completes the visit without ranking 
   }
 }
 
+TEST_CASE("with no operator attached a non-ok capture is kept as it stands") {
+  Harness h;
+  h.cfg.min_valid_events = 1000;   // every capture is insufficient_data
+  h.chain = dsp::build_chain(h.cfg);
+  SyntheticSource source(params_for(h.cfg));
+  FixedAngleProvider provider;
+  ScriptedTerminalUi terminal(false);   // not interactive, and nothing scripted
+  FaultStore store(*h.store);
+
+  ExperimentController controller(source, provider, terminal, store, h.chain, h.cfg,
+                                  h.segment);
+  // The run reaches its last visit rather than stopping at the first imperfect
+  // capture, and every attempt is accepted with its true status.
+  CHECK(controller.run() == ExperimentController::Result::Completed);
+  CHECK(store.commit_calls == 3);
+  for (const AttemptRecord& a : h.store->record().attempts) {
+    CHECK(a.disposition == Disposition::Accepted);
+    CHECK(a.status == AttemptStatus::InsufficientData);
+    CHECK_FALSE(a.capture_score_channel_db.has_value());
+  }
+  bool explained = false;
+  for (const std::string& line : terminal.emitted()) {
+    if (line.find("No operator is attached") != std::string::npos) explained = true;
+  }
+  CHECK(explained);
+}
+
 TEST_CASE("a capture that times out becomes a timeout attempt and produces no metrics") {
   Harness h;
   h.cfg.duration_s = 0.2;
@@ -357,7 +384,6 @@ TEST_CASE("a capture that times out becomes a timeout attempt and produces no me
   FixedAngleProvider provider;
 
   ScriptedTerminalUi terminal(false);
-  for (int i = 0; i < 3; ++i) terminal.push_menu_choice(1);   // Accept as-is
   ExperimentController controller(source, provider, terminal, *h.store, h.chain, h.cfg,
                                   h.segment);
   CHECK(controller.run() == ExperimentController::Result::Completed);
@@ -369,12 +395,12 @@ TEST_CASE("a capture that times out becomes a timeout attempt and produces no me
     CHECK(a.valid_event_count == 0);
     CHECK(a.events.empty());
   }
-  // A retry was offered: this is a failed capture, not a persistence fault.
-  bool offered = false;
+  // The failure is reported as a capture fault rather than a persistence one.
+  bool reported = false;
   for (const std::string& line : terminal.emitted()) {
-    if (line.find("Retry this angle") != std::string::npos) offered = true;
+    if (line.find("ended as timeout") != std::string::npos) reported = true;
   }
-  CHECK(offered);
+  CHECK(reported);
 }
 
 TEST_CASE("a final NotCommitted ends the run without advancing and without duplicating") {
@@ -584,7 +610,7 @@ TEST_CASE("a crash after a retry commit resumes at the right attempt number") {
 
     SyntheticSource source(params_for(cfg));
     FixedAngleProvider provider;
-    ScriptedTerminalUi terminal(false);
+    ScriptedTerminalUi terminal(true);   // an operator is at the menu
     terminal.push_menu_choice(0);   // Retry
     terminal.push_menu_choice(0);   // Retry again, which never commits
     dsp::Chain chain = dsp::build_chain(cfg);
@@ -632,7 +658,7 @@ TEST_CASE("the retry option is withheld once the reserved capacity would be spen
 
   SyntheticSource source(params_for(h.cfg));
   FixedAngleProvider provider;
-  ScriptedTerminalUi terminal(false);
+  ScriptedTerminalUi terminal(true);   // an operator is at the menu
   terminal.push_menu_choice(0);   // the first offered option, whatever it is
 
   ExperimentController controller(source, provider, terminal, *h.store, h.chain, h.cfg,

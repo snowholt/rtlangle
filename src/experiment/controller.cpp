@@ -255,6 +255,20 @@ ExperimentController::VisitStep ExperimentController::run_visit(const Visit& vis
                       ? ": " + *commit.attempt.status_detail
                       : std::string{}));
 
+  if (!terminal_.interactive()) {
+    // There is nobody to ask. The attempt is accepted as it stands: it keeps
+    // its non-ok status, so it does not rank, and the visit is complete. That
+    // is the only choice of the four that neither discards a record nor
+    // repeats a capture nobody asked for - and a run that stopped at the first
+    // imperfect capture would leave every later angle unmeasured.
+    terminal_.info(
+        "No operator is attached, so this attempt is kept as it stands. It is recorded with "
+        "its status and does not contribute to a ranking.");
+    commit.disposition = Disposition::Accepted;
+    commit.pending_retry.reset();
+    return apply_commit(commit, store_.commit_visit(commit));
+  }
+
   std::vector<ui::MenuItem> items;
   const bool retry = retry_offered();
   if (retry) {

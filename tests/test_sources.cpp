@@ -447,15 +447,15 @@ TEST_CASE("make_source builds each source kind and names what it refuses") {
   CHECK(make_source(cfg, error) == nullptr);
   CHECK(error.find("usrp") != std::string::npos);
 
+#if RTLANGLE_WITH_RTLSDR
+  // Deliberately NOT exercised here. `ctest -LE hardware` must be genuinely
+  // hardware-free, and opening a device is a hardware interaction even when it
+  // fails: how long it takes depends on what else is holding the device. The
+  // device path's error mapping is tested directly in the offline suite, from
+  // the return codes, with no device involved.
+#else
   cfg.source_spec = "rtlsdr";
   const auto device = make_source(cfg, error);
-#if RTLANGLE_WITH_RTLSDR
-  // With device support compiled in, the outcome depends on whether a device is
-  // attached and free; either way it is not the CMake-option refusal.
-  if (device == nullptr) {
-    CHECK(error.find("RTLANGLE_WITH_RTLSDR=OFF") == std::string::npos);
-  }
-#else
   CHECK(device == nullptr);
   CHECK(error.find("RTLANGLE_WITH_RTLSDR=OFF") != std::string::npos);
 #endif

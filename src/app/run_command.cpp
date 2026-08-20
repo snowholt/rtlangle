@@ -22,6 +22,24 @@
 namespace rtlangle::app {
 namespace {
 
+// A rendered report is a multi-line block. It must be emitted a line at a time:
+// ITerminalUi::info neutralises control characters, and a newline is one, so
+// handing it the whole block would print the report as a single line with every
+// break shown as an escape. Every field inside the report was already
+// neutralised when it was rendered, so the lines themselves are safe.
+void emit_block(ui::ITerminalUi& terminal, std::string_view text) {
+  std::size_t start = 0;
+  while (start <= text.size()) {
+    const std::size_t end = text.find('\n', start);
+    if (end == std::string_view::npos) {
+      if (start < text.size()) terminal.info(text.substr(start));
+      return;
+    }
+    terminal.info(text.substr(start, end - start));
+    start = end + 1;
+  }
+}
+
 void step(const RunHooks& hooks, std::string_view name) {
   if (hooks.observe) hooks.observe(name);
 }
@@ -95,8 +113,7 @@ int report_command(const std::filesystem::path& session_dir, const Config& cfg,
   summary.partial = record.state != SessionState::Completed;
   ui::choose_report_metric(summary, terminal);
 
-  const std::string text = ui::render_report(record, summary, !cfg.no_color);
-  terminal.info(text);
+  emit_block(terminal, ui::render_report(record, summary, !cfg.no_color));
   return 0;
 }
 
@@ -226,7 +243,6 @@ int run_command(const Config& config, ui::ITerminalUi& terminal, const RunHooks&
 
   step(hooks, "render");
   summary.partial = result != ExperimentController::Result::Completed;
-  const std::string report_text = ui::render_report(store->record(), summary, !cfg.no_color);
 
   // ---- the terminal or paused state, written HERE and nowhere else -------
   switch (result) {
@@ -243,7 +259,9 @@ int run_command(const Config& config, ui::ITerminalUi& terminal, const RunHooks&
                        "the directory with --resume to finish the session.");
         return 1;
       }
-      terminal.info(report_text);
+      // Rendered AFTER the state write, so the copy the operator reads is the
+      // same one report.txt holds rather than a snapshot from before it.
+      emit_block(terminal, ui::render_report(store->record(), summary, !cfg.no_color));
       return 0;
     }
     case ExperimentController::Result::QuitRequested: {
@@ -255,7 +273,7 @@ int run_command(const Config& config, ui::ITerminalUi& terminal, const RunHooks&
                        "the directory with --resume to continue.");
         return 1;
       }
-      terminal.info(report_text);
+      emit_block(terminal, ui::render_report(store->record(), summary, !cfg.no_color));
       return 0;
     }
     case ExperimentController::Result::Failed: {
@@ -276,7 +294,7 @@ int run_command(const Config& config, ui::ITerminalUi& terminal, const RunHooks&
             "measurement taken before the fault.");
         return 1;
       }
-      terminal.info(report_text);
+      emit_block(terminal, ui::render_report(store->record(), summary, !cfg.no_color));
       return 1;
     }
   }

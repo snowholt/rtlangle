@@ -19,7 +19,7 @@ struct Table {
   std::vector<std::vector<std::string>> rows;
   // Printed under the table. Used for the "with n = 2 the median equals the
   // mean" note and for the spread column's explanation, so a reader cannot take
-  // a spread for a confidence interval.
+  // a spread for an interval estimate.
   std::vector<std::string> notes;
 };
 

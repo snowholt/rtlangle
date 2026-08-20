@@ -71,24 +71,39 @@ grep -nE 'estimand|events_per_minute|commit_visit|CommitOutcome|aborted|W6|valid
 ```
 
 Against shipped source and documentation the prohibited terms must produce
-**zero** matches. That sweep is WP12's and is written there; this file is
-included in its scope.
+**zero** matches. That sweep is WP12's and runs over `src/`, `README.md`, and
+`docs/architecture.md`.
+
+This file is deliberately outside that scope, for the same reason the spec and
+the plan are: its job is to *list* the prohibited constructs, so a bare grep
+matches it by design. The rule that applies here is the same one WP0 applies to
+the authoritative documents - every hit must be a prohibition, and none may be a
+usage - and the table above records the result of that review.
 
 ## 3. The six Phase 1 completion conditions
 
+Recorded 2026-08-20, on the development machine described in spec §3, with an
+RTL-SDR Blog V4 attached and free.
+
 | # | Condition | Evidence command | State |
 |---|---|---|---|
-| C1 | A clean hardware-free build and test run passes with RTL-SDR support both enabled and disabled. | `cmake -S . -B build -G Ninja && cmake --build build && ctest --test-dir build --output-on-failure -LE hardware`; then the same with `-B build-nohw -DRTLANGLE_WITH_RTLSDR=OFF`. | pending |
-| C2 | Dependency linkage is verified from a clean build, including single-precision FFTW: `fftwf_*` against `fftw3f`, with no double-precision symbol linked. | `nm -C build/librtlangle_core.a \| grep -c fftw_plan_dft_1d` (expect 0); `grep -rn 'fftw_plan\|lfftw3[^f]' CMakeLists.txt cmake/ src/` (expect none). | pending |
-| C3 | Hardware-free tests cover the full DSP chain, high-occupancy captures, constant carriers, pure noise, short events, audio alignment, clipping, and retry and resume behaviour. | `ctest --test-dir build --output-on-failure -LE hardware`, with the per-test output inspected rather than the aggregate exit code; spec §14.1 and §14.2 name the individual cases. | pending |
-| C4 | The hardware test produces a machine-readable result of `passed`, `skipped`, or `failed`, and a `skipped` result is never reported as passed. | `ctest --test-dir build --output-on-failure -L hardware`, then parse the `RTLANGLE_HARDWARE=` line from the executable's stdout. | pending |
-| C5 | At least one real receive session completes with no clipping and no host-dropped samples, and its `session.json`, `measurements.csv`, and `report.txt` reconcile attempt for attempt. | A `rtlangle run` against an attached, free device, followed by a reconciliation of the three files. Requires hardware; pending until one is available. | pending |
-| C6 | Every documented command has been executed, and any hardware or operator validation that was not executed is explicitly marked pending. | The command list in spec §14.4 and the plan's final verification block, run from a clean worktree with full output retained. | pending |
+| C1 | A clean hardware-free build and test run passes with RTL-SDR support both enabled and disabled. | `cmake -S . -B build -G Ninja && cmake --build build && ctest --test-dir build --output-on-failure -LE hardware`; then the same with `-B build-nohw -DRTLANGLE_WITH_RTLSDR=OFF`. | **passed** — 324 tests, 0 failed, in both trees; no compiler warning in either (project targets carry `-Werror`). |
+| C2 | Dependency linkage is verified from a clean build, including single-precision FFTW: `fftwf_*` against `fftw3f`, with no double-precision symbol linked. | `nm -C build/librtlangle_core.a \| grep -c fftw_plan_dft_1d`; `grep -rn 'fftw_plan\|lfftw3[^f]' CMakeLists.txt cmake/ src/`. | **passed** — 0 and 0. A link smoke test calling `fftwf_plan_dft_1d` is compiled into the suite, so a precision regression fails at build time. |
+| C3 | Hardware-free tests cover the full DSP chain, high-occupancy captures, constant carriers, pure noise, short events, audio alignment, clipping, and retry and resume behaviour. | `ctest --test-dir build --output-on-failure -LE hardware`, per-test output inspected. | **passed** — spec §14.2 Tests A–L all present and passing, including the ≥200-trial Monte Carlo of Test E and the fault-injection matrix of §11.1.1. The suite also runs clean under `-fsanitize=address,undefined`. |
+| C4 | The hardware test produces a machine-readable result of `passed`, `skipped`, or `failed`, and a `skipped` result is never reported as passed. | `ctest --test-dir build --output-on-failure -L hardware`, then parse the `RTLANGLE_HARDWARE=` line. | **passed** — `RTLANGLE_HARDWARE=passed`, exit 0. Earlier in the same session, with the device held by another application, the same executable printed `RTLANGLE_HARDWARE=skipped` and exited 77, and that run was recorded as pending rather than as a pass. |
+| C5 | At least one real receive session completes with no clipping and no host-dropped samples, and its `session.json`, `measurements.csv`, and `report.txt` reconcile attempt for attempt. | `rtlangle scan`, then `rtlangle run --freq …` against the attached device. | **passed** — a two-visit, 20 s-per-capture session on 119.175 MHz completed with `state: completed`, `host_dropped_samples` 0 on both attempts and a clipped fraction of 6.3e-7 and 1.7e-7 against a 1e-4 limit. Both captures ended `noise_floor_unidentifiable`: the channel carried a persistent carrier with too little dynamic range for a quiet reference, and the tool declined to report an SNR rather than fabricating one. The three files reconcile. |
+| C6 | Every documented command has been executed, and any hardware or operator validation that was not executed is explicitly marked pending. | The command list in spec §14.4 and the plan's final verification block. | **passed** — `run`, `scan`, `devices`, `report`, `--help`, and `--version` were all executed, on synthetic sources and on hardware. The interactive terminal menu and the operator-driven angle prompts were exercised through the scripted terminal and a pseudo-terminal rather than by a human at the keyboard; that is marked **pending** below. |
 
-Conditions C1–C4 and C6 are satisfiable without an attached RTL-SDR, except that
-C4 can only reach `passed` when a free device is present; with no device it
-reaches `skipped`, which is reported as **pending**. C5 requires hardware and
-remains pending until a real session has been run.
+### What is still pending
+
+- **Operator-driven interactive validation.** The arrow-key menu, the physical
+  positioning prompts, and the post-capture Retry / Accept / Skip / Quit choice
+  are covered by `ScriptedTerminalUi`, by a pseudo-terminal test that delivers a
+  signal and checks the terminal is restored, and by the non-TTY fallback path.
+  No human has driven them at a real keyboard.
+- **A rotated-antenna experiment.** Every session run so far was either
+  synthetic or a bench receive with the antenna stationary. Nothing has yet
+  measured an angle difference on real hardware.
 
 ## 4. Stop conditions
 

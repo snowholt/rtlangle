@@ -546,18 +546,23 @@ TEST_CASE("the read-only loader still refuses a record that violates an invarian
 }
 
 TEST_CASE("the clock is injectable, so a generated session can be reproduced byte for byte") {
+  // reset_clock runs whatever happens below: the clock is process-global, and a
+  // frozen one would make later tests in this binary fail for a reason that has
+  // nothing to do with them.
+  struct Restore {
+    ~Restore() { reset_clock(); }
+  } restore;
+
   const auto pinned = std::chrono::system_clock::from_time_t(1787000000);
   set_clock([pinned] { return pinned; });
   CHECK(utc_now() == format_utc(pinned));
   const std::string first = session_stamp(now());
 
   reset_clock();
-  const std::string live = utc_now();
-  CHECK(live != format_utc(pinned));
+  CHECK(utc_now() != format_utc(pinned));
 
   set_clock([pinned] { return pinned; });
   CHECK(session_stamp(now()) == first);
-  reset_clock();
 }
 
 }  // TEST_SUITE

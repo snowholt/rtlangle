@@ -75,6 +75,93 @@ std::string describe_open_error(int code, int device_index, const DeviceList& en
   return msg;
 }
 
+std::vector<std::string> applied_setting_notices(const SourceInfo& info) {
+  std::vector<std::string> out;
+  if (info.requested_sample_rate_hz != info.applied_sample_rate_hz) {
+    out.push_back("The device snapped the sample rate: " +
+                  std::to_string(info.requested_sample_rate_hz) + " Hz was requested and " +
+                  std::to_string(info.applied_sample_rate_hz) + " Hz was applied.");
+  }
+  if (info.requested_center_hz != info.applied_center_hz) {
+    out.push_back("The device snapped the centre frequency: " +
+                  std::to_string(info.requested_center_hz) + " Hz was requested and " +
+                  std::to_string(info.applied_center_hz) + " Hz was applied.");
+  }
+  if (info.requested_gain_tenth_db != info.applied_gain_tenth_db) {
+    out.push_back("The device snapped the tuner gain to its gain table: " +
+                  std::to_string(info.requested_gain_tenth_db) +
+                  " tenths of a dB was requested and " +
+                  std::to_string(info.applied_gain_tenth_db) +
+                  " tenths of a dB was applied. This is normal; what would matter is the "
+                  "applied gain changing between attempts in one receiver segment.");
+  }
+  return out;
+}
+
+DeviceConfiguration configure_device(void* dev, const Config& cfg, const RtlSdrOps& ops,
+                                     const DeviceList& enumerated) {
+  DeviceConfiguration out;
+
+  auto fail = [&](const char* call) {
+    out.ok = false;
+    out.error = std::string("the call ") + call + " failed while opening RTL-SDR device " +
+                std::to_string(cfg.device_index) + ".";
+    return out;
+  };
+
+  if (ops.set_sample_rate(dev, cfg.sample_rate_hz) != 0) return fail("rtlsdr_set_sample_rate");
+
+  const std::uint32_t tuned = static_cast<std::uint32_t>(
+      static_cast<std::int64_t>(cfg.center_hz.value_or(0)) + cfg.offset_tune_hz);
+  if (ops.set_center_freq(dev, tuned) != 0) return fail("rtlsdr_set_center_freq");
+
+  // A repeated identical correction returns -2; that is not a failure.
+  if (const int rc = ops.set_freq_correction(dev, cfg.ppm); rc != 0 && rc != -2) {
+    return fail("rtlsdr_set_freq_correction");
+  }
+
+  // Gain is the controlled variable of the whole experiment. Manual tuner gain
+  // and the RTL2832U's digital AGC off, unconditionally, both return codes
+  // checked. There is no configuration that changes this: Config has no AGC
+  // field, so there is nothing an operator could set.
+  if (ops.set_tuner_gain_mode(dev, 1) != 0) return fail("rtlsdr_set_tuner_gain_mode");
+  if (ops.set_agc_mode(dev, 0) != 0) return fail("rtlsdr_set_agc_mode");
+
+  const GainTable table = ops.tuner_gains(dev);
+  const int requested_gain = cfg.gain_tenth_db.value_or(table.empty() ? 0 : table.back());
+  const int snapped = snap_gain_tenth_db(table, cfg.gain_tenth_db);
+  if (ops.set_tuner_gain(dev, snapped) != 0) return fail("rtlsdr_set_tuner_gain");
+
+  // The bias tee is the only outbound electrical path on this hardware. It is
+  // set to a non-zero argument only when the operator asked for it, and is
+  // explicitly set to zero otherwise rather than being left as the device found
+  // it.
+  if (ops.set_bias_tee(dev, cfg.bias_tee ? 1 : 0) != 0) return fail("rtlsdr_set_bias_tee");
+
+  if (ops.reset_buffer(dev) != 0) return fail("rtlsdr_reset_buffer");
+
+  out.info.driver = std::string("librtlsdr ") + RTLANGLE_LIBRTLSDR_VERSION;
+  out.info.device_name = ops.device_name ? ops.device_name(cfg.device_index) : std::string{};
+  for (const DeviceEntry& d : enumerated) {
+    if (d.index == cfg.device_index) out.info.serial = d.serial;
+  }
+  out.info.requested_sample_rate_hz = cfg.sample_rate_hz;
+  out.info.applied_sample_rate_hz = ops.get_sample_rate(dev);
+  out.info.requested_center_hz = tuned;
+  out.info.applied_center_hz = ops.get_center_freq(dev);
+  out.info.requested_gain_tenth_db = requested_gain;
+  // The APPLIED gain, read back, is what is persisted: a wrong driver carrying
+  // the wrong gain table is then visible in the record rather than hidden in the
+  // results.
+  out.info.applied_gain_tenth_db = ops.get_tuner_gain(dev);
+  // Read-back evidence that AGC was off, not a setting that could be true.
+  out.info.agc_enabled = false;
+  out.info.ppm = cfg.ppm;
+  out.info.applied_offset_hz = cfg.offset_tune_hz;
+  out.ok = true;
+  return out;
+}
+
 #if RTLANGLE_WITH_RTLSDR
 
 DeviceList enumerate_devices() {
@@ -228,6 +315,45 @@ class RtlSdrSource final : public ITunableSampleSource {
 
 }  // namespace
 
+RtlSdrOps real_ops() {
+  RtlSdrOps o;
+  auto as_dev = [](void* p) { return static_cast<rtlsdr_dev_t*>(p); };
+  o.set_sample_rate = [as_dev](void* d, std::uint32_t v) {
+    return rtlsdr_set_sample_rate(as_dev(d), v);
+  };
+  o.get_sample_rate = [as_dev](void* d) { return rtlsdr_get_sample_rate(as_dev(d)); };
+  o.set_center_freq = [as_dev](void* d, std::uint32_t v) {
+    return rtlsdr_set_center_freq(as_dev(d), v);
+  };
+  o.get_center_freq = [as_dev](void* d) { return rtlsdr_get_center_freq(as_dev(d)); };
+  o.set_freq_correction = [as_dev](void* d, int v) {
+    return rtlsdr_set_freq_correction(as_dev(d), v);
+  };
+  o.set_tuner_gain_mode = [as_dev](void* d, int v) {
+    return rtlsdr_set_tuner_gain_mode(as_dev(d), v);
+  };
+  o.set_agc_mode = [as_dev](void* d, int v) { return rtlsdr_set_agc_mode(as_dev(d), v); };
+  o.tuner_gains = [as_dev](void* d) {
+    GainTable table;
+    const int count = rtlsdr_get_tuner_gains(as_dev(d), nullptr);
+    if (count > 0) {
+      table.resize(static_cast<std::size_t>(count));
+      rtlsdr_get_tuner_gains(as_dev(d), table.data());
+      std::sort(table.begin(), table.end());
+    }
+    return table;
+  };
+  o.set_tuner_gain = [as_dev](void* d, int v) { return rtlsdr_set_tuner_gain(as_dev(d), v); };
+  o.get_tuner_gain = [as_dev](void* d) { return rtlsdr_get_tuner_gain(as_dev(d)); };
+  o.set_bias_tee = [as_dev](void* d, int v) { return rtlsdr_set_bias_tee(as_dev(d), v); };
+  o.reset_buffer = [as_dev](void* d) { return rtlsdr_reset_buffer(as_dev(d)); };
+  o.device_name = [](int index) {
+    const char* name = rtlsdr_get_device_name(static_cast<std::uint32_t>(index));
+    return std::string(name != nullptr ? name : "");
+  };
+  return o;
+}
+
 std::unique_ptr<ITunableSampleSource> make_rtlsdr_source(const Config& cfg, std::string& error) {
   error.clear();
   const DeviceList devices = enumerate_devices();
@@ -239,72 +365,16 @@ std::unique_ptr<ITunableSampleSource> make_rtlsdr_source(const Config& cfg, std:
     return nullptr;
   }
 
-  auto fail = [&](const char* call) {
-    error = std::string("the call ") + call + " failed while opening RTL-SDR device " +
-            std::to_string(cfg.device_index) + ".";
+  const DeviceConfiguration configured = configure_device(dev, cfg, real_ops(), devices);
+  if (!configured.ok) {
+    error = configured.error;
     rtlsdr_close(dev);
     return nullptr;
-  };
-
-  if (rtlsdr_set_sample_rate(dev, cfg.sample_rate_hz) != 0) return fail("rtlsdr_set_sample_rate");
-  const std::uint32_t tuned = static_cast<std::uint32_t>(
-      static_cast<std::int64_t>(cfg.center_hz.value_or(0)) + cfg.offset_tune_hz);
-  if (rtlsdr_set_center_freq(dev, tuned) != 0) return fail("rtlsdr_set_center_freq");
-  // A repeated identical correction returns -2; that is not a failure.
-  if (const int prc = rtlsdr_set_freq_correction(dev, cfg.ppm); prc != 0 && prc != -2) {
-    return fail("rtlsdr_set_freq_correction");
   }
-
-  // Gain is the controlled variable. Manual tuner gain and the RTL2832U's
-  // digital AGC off, unconditionally, both return codes checked. There is no
-  // configuration that changes this (spec decision Q7).
-  if (rtlsdr_set_tuner_gain_mode(dev, 1) != 0) return fail("rtlsdr_set_tuner_gain_mode");
-  if (rtlsdr_set_agc_mode(dev, 0) != 0) return fail("rtlsdr_set_agc_mode");
-
-  GainTable table;
-  const int gain_count = rtlsdr_get_tuner_gains(dev, nullptr);
-  if (gain_count > 0) {
-    table.resize(static_cast<std::size_t>(gain_count));
-    rtlsdr_get_tuner_gains(dev, table.data());
-    std::sort(table.begin(), table.end());
-  }
-  const int requested_gain = cfg.gain_tenth_db.value_or(table.empty() ? 0 : table.back());
-  const int snapped = snap_gain_tenth_db(table, cfg.gain_tenth_db);
-  if (rtlsdr_set_tuner_gain(dev, snapped) != 0) return fail("rtlsdr_set_tuner_gain");
-
-  // The bias tee is the only outbound electrical path on this hardware, and it
-  // is touched with a non-zero argument only when the operator asked for it.
-  if (cfg.bias_tee) {
-    if (rtlsdr_set_bias_tee(dev, 1) != 0) return fail("rtlsdr_set_bias_tee");
-  } else {
-    if (rtlsdr_set_bias_tee(dev, 0) != 0) return fail("rtlsdr_set_bias_tee");
-  }
-
-  if (rtlsdr_reset_buffer(dev) != 0) return fail("rtlsdr_reset_buffer");
-
-  SourceInfo info;
-  info.driver = std::string("librtlsdr ") + RTLANGLE_LIBRTLSDR_VERSION;
-  const char* name = rtlsdr_get_device_name(static_cast<std::uint32_t>(cfg.device_index));
-  info.device_name = (name != nullptr) ? name : "";
-  for (const DeviceEntry& d : devices) {
-    if (d.index == cfg.device_index) info.serial = d.serial;
-  }
-  info.requested_sample_rate_hz = cfg.sample_rate_hz;
-  info.applied_sample_rate_hz = rtlsdr_get_sample_rate(dev);
-  info.requested_center_hz = tuned;
-  info.applied_center_hz = rtlsdr_get_center_freq(dev);
-  info.requested_gain_tenth_db = requested_gain;
-  // The APPLIED gain, read back, is what is persisted: a wrong driver carrying
-  // the wrong gain table is then visible in the record rather than hidden in
-  // the results.
-  info.applied_gain_tenth_db = rtlsdr_get_tuner_gain(dev);
-  info.agc_enabled = false;
-  info.ppm = cfg.ppm;
-  info.applied_offset_hz = cfg.offset_tune_hz;
 
   // Roughly two seconds of samples, so a slow DSP pass cannot starve the queue.
   const std::size_t capacity = static_cast<std::size_t>(cfg.sample_rate_hz) * 2;
-  return std::make_unique<RtlSdrSource>(dev, std::move(info), capacity);
+  return std::make_unique<RtlSdrSource>(dev, configured.info, capacity);
 }
 
 #else  // !RTLANGLE_WITH_RTLSDR

@@ -36,6 +36,7 @@ endif()
 # rtlangle_core
 # ---------------------------------------------------------------------------
 set(RTLANGLE_CORE_SOURCES
+    src/app/device_check.cpp
     src/core/angle_math.cpp
     src/core/config.cpp
     src/core/records.cpp
@@ -106,6 +107,7 @@ set(RTLANGLE_TEST_SOURCES
     tests/test_snr_estimator.cpp
     tests/test_persist.cpp
     tests/test_resume.cpp
+    tests/test_rtlsdr_offline.cpp
 )
 
 add_executable(rtlangle_tests ${RTLANGLE_TEST_SOURCES})

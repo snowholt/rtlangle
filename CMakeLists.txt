@@ -48,8 +48,10 @@ set(RTLANGLE_CORE_SOURCES
     src/dsp/framer.cpp
     src/dsp/offset_mixer.cpp
     src/dsp/spectrum.cpp
+    src/experiment/aggregator.cpp
     src/experiment/capture_runner.cpp
     src/experiment/controller.cpp
+    src/experiment/quality_checks.cpp
     src/experiment/visit_plan.cpp
     src/metrics/event_detector.cpp
     src/metrics/noise_floor.cpp
@@ -61,6 +63,7 @@ set(RTLANGLE_CORE_SOURCES
     src/persist/session_loader.cpp
     src/angle/manual_angle_provider.cpp
     src/ui/ansi_terminal_ui.cpp
+    src/ui/report_renderer.cpp
     src/ui/safe_text.cpp
     src/ui/scripted_terminal_ui.cpp
     src/source/iq_file_source.cpp
@@ -119,6 +122,9 @@ set(RTLANGLE_TEST_SOURCES
     tests/test_terminal_pty.cpp
     tests/test_visit_plan.cpp
     tests/test_controller.cpp
+    tests/test_aggregation.cpp
+    tests/test_quality_checks.cpp
+    tests/test_report.cpp
 )
 
 add_executable(rtlangle_tests ${RTLANGLE_TEST_SOURCES})

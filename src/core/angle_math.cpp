@@ -156,7 +156,10 @@ double circular_spread_deg(std::span<const double> xs) {
   const double r = std::hypot(s, c) / static_cast<double>(n);
   if (!(r > kResultantEpsilon)) return std::numeric_limits<double>::quiet_NaN();
   const double clamped = std::min(r, 1.0);
-  return std::sqrt(-2.0 * std::log(clamped)) * kDegPerRad;
+  // sqrt(-2*log(1)) is a negative zero, which renders as "-0.0" in a report.
+  // A spread of zero has no sign.
+  const double spread = std::sqrt(-2.0 * std::log(clamped)) * kDegPerRad;
+  return spread == 0.0 ? 0.0 : spread;
 }
 
 std::optional<VisitOrder> parse_visit_order(std::string_view s) {

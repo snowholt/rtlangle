@@ -39,6 +39,13 @@ set(RTLANGLE_CORE_SOURCES
     src/core/angle_math.cpp
     src/core/config.cpp
     src/core/records.cpp
+    src/dsp/am_demodulator.cpp
+    src/dsp/chain.cpp
+    src/dsp/fir_decimator.cpp
+    src/dsp/fir_design.cpp
+    src/dsp/framer.cpp
+    src/dsp/offset_mixer.cpp
+    src/dsp/spectrum.cpp
     src/core/db.cpp
     src/core/statistics.cpp
 )
@@ -74,6 +81,7 @@ set(RTLANGLE_TEST_SOURCES
     tests/test_angle_math.cpp
     tests/test_config.cpp
     tests/test_records.cpp
+    tests/test_dsp.cpp
 )
 
 add_executable(rtlangle_tests ${RTLANGLE_TEST_SOURCES})

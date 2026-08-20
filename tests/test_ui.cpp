@@ -9,7 +9,9 @@
 
 #include <array>
 #include <cstdlib>
+#include <cstddef>
 #include <string>
+#include <string_view>
 #include <unistd.h>
 
 using namespace rtlangle::ui;
@@ -143,6 +145,141 @@ TEST_CASE("the colour predicate is a rule, not a constant") {
   } else {
     ::unsetenv("NO_COLOR");
   }
+}
+
+// ---------------------------------------------------------------------------
+// Menu painting. The repaint moves the cursor up by the number of lines the
+// menu occupies, so a line wider than the terminal would wrap onto a second
+// physical row, the count would be short by one, and the redraw would smear
+// instead of replacing. Truncation here is what keeps the count exact.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// True when every byte sequence is a well-formed UTF-8 code point. Truncating
+// mid-sequence would emit an invalid byte and put the column count in doubt.
+bool valid_utf8(std::string_view s) {
+  std::size_t i = 0;
+  while (i < s.size()) {
+    const auto c = static_cast<unsigned char>(s[i]);
+    std::size_t extra = 0;
+    if (c < 0x80) extra = 0;
+    else if ((c & 0xE0) == 0xC0) extra = 1;
+    else if ((c & 0xF0) == 0xE0) extra = 2;
+    else if ((c & 0xF8) == 0xF0) extra = 3;
+    else return false;
+    if (extra > 0 && i + extra >= s.size()) return false;
+    for (std::size_t k = 1; k <= extra; ++k) {
+      if ((static_cast<unsigned char>(s[i + k]) & 0xC0) != 0x80) return false;
+    }
+    i += extra + 1;
+  }
+  return true;
+}
+
+}  // namespace
+
+TEST_CASE("display_width counts code points, not bytes") {
+  CHECK(display_width("") == 0);
+  CHECK(display_width("plain") == 5);
+  CHECK(display_width("Straße") == 6);            // U+00DF is two bytes
+  CHECK(display_width("↑↓") == 2);  // two arrows, six bytes
+}
+
+TEST_CASE("menu lines are truncated so the repaint line count is exact") {
+  const std::array<MenuItem, 2> items = {
+      MenuItem{"A label long enough to overrun a narrow terminal on its own",
+               "and a detail that makes it longer still"},
+      MenuItem{"Short", ""}};
+  const std::size_t width = 40;
+  const auto lines = menu_lines("A title also far too wide for forty columns", items, 0, width, true);
+
+  // blank, title, two items, blank, hint.
+  CHECK(lines.size() == 6);
+  for (const MenuLine& line : lines) {
+    CHECK(display_width(line.text) <= width - 1);
+    CHECK(valid_utf8(line.text));
+  }
+  CHECK(lines[1].style == MenuLine::Style::Title);
+  CHECK(lines.back().style == MenuLine::Style::Hint);
+  // The marker sits on the initial index and nowhere else.
+  CHECK(lines[2].text.rfind("> ", 0) == 0);
+  CHECK(lines[3].text.rfind("  ", 0) == 0);
+}
+
+TEST_CASE("truncation lands on a code point boundary") {
+  const std::array<MenuItem, 1> items = {MenuItem{"Straße Straße Straße", ""}};
+  for (std::size_t width = 2; width <= 24; ++width) {
+    const auto lines = menu_lines("Straße", items, 0, width, false);
+    for (const MenuLine& line : lines) {
+      CHECK(display_width(line.text) <= width - 1);
+      CHECK(valid_utf8(line.text));
+    }
+  }
+}
+
+TEST_CASE("the cursor marker follows the index and the hint is optional") {
+  const std::array<MenuItem, 3> items = {MenuItem{"First", ""}, MenuItem{"Second", ""},
+                                         MenuItem{"Third", ""}};
+  const auto lines = menu_lines("Choose", items, 2, 80, false);
+  // blank, title, three items — and no hint.
+  CHECK(lines.size() == 5);
+  CHECK(lines[2].text.rfind("  First", 0) == 0);
+  CHECK(lines[4].text.rfind("> Third", 0) == 0);
+  for (const MenuLine& line : lines) CHECK(line.style != MenuLine::Style::Hint);
+}
+
+TEST_CASE("the key hint names every key the menu accepts, in both forms") {
+  for (const bool unicode : {false, true}) {
+    const std::string hint(menu_key_hint(unicode));
+    CHECK(hint.find("j/k") != std::string::npos);
+    CHECK(hint.find("Enter") != std::string::npos);
+    CHECK(hint.find("q") != std::string::npos);
+    CHECK(valid_utf8(hint));
+  }
+  // The ASCII form is reachable, because a terminal that cannot render an arrow
+  // would also count its bytes as columns and wrap the line the repaint counted.
+  const std::string ascii(menu_key_hint(false));
+  CHECK(display_width(ascii) == ascii.size());
+  CHECK(std::string(menu_key_hint(true)).find("↑") != std::string::npos);
+}
+
+TEST_CASE("the unicode predicate is a rule, not a constant") {
+  const char* previous = std::getenv("LC_ALL");
+  ::setenv("LC_ALL", "C.UTF-8", 1);
+  CHECK(unicode_enabled());
+  ::setenv("LC_ALL", "C", 1);
+  CHECK_FALSE(unicode_enabled());
+  if (previous != nullptr) {
+    ::setenv("LC_ALL", previous, 1);
+  } else {
+    ::unsetenv("LC_ALL");
+  }
+}
+
+TEST_CASE("terminal_width falls back rather than returning zero") {
+  // In the suite stdout may be a pipe, where TIOCGWINSZ fails. A width of zero
+  // would make every line truncate to nothing.
+  CHECK(terminal_width() > 0);
+}
+
+TEST_CASE("the detail column is aligned only while alignment still fits") {
+  // Marker 2 + widest label 12 + gap 3 + widest detail 8 is 25 columns, so the
+  // aligned form fits in 26 and does not fit in 25.
+  const std::array<MenuItem, 2> items = {MenuItem{"Short", "a detail"},
+                                         MenuItem{"Longer label", "another"}};
+
+  const auto wide = menu_lines("t", items, 0, 80, false);
+  CHECK(wide[2].text.find("a detail") == wide[3].text.find("another"));
+
+  // One column too narrow for it. Padding to the widest label would push the
+  // longer line past the width and cost the end of a detail to truncation, so
+  // the column goes ragged instead and both details survive intact.
+  const auto narrow = menu_lines("t", items, 0, 25, false);
+  CHECK(narrow[2].text.find("a detail") != narrow[3].text.find("another"));
+  for (const MenuLine& line : narrow) CHECK(display_width(line.text) <= 24);
+  CHECK(narrow[2].text.find("a detail") != std::string::npos);
+  CHECK(narrow[3].text.find("another") != std::string::npos);
 }
 
 }  // TEST_SUITE

@@ -252,6 +252,47 @@ before any dwell is generated. The chosen step is the largest legal one,
 the airband. A regression fixture drives the placement with the old step and
 asserts the hole exists, so the coverage test cannot pass for the wrong reason.
 
+## Menu painting
+
+A menu repaints by moving the cursor up over the block it last drew
+(`ESC [ n A`) and clearing from there (`ESC [ J`). That is correct only while
+the number of lines drawn equals the number of physical rows they occupy, so
+`menu_lines()` truncates every line to one column short of the terminal width
+before anything is written. Without the truncation a single over-wide line wraps
+onto a second row, `n` is short by one, and each keystroke smears a partial copy
+of the menu down the screen instead of replacing it. The width comes from
+`TIOCGWINSZ`, then `COLUMNS`, then 80, and is never zero.
+
+Width is counted in UTF-8 code points, and truncation stops on a lead byte so
+the result stays well-formed. A double-width glyph therefore counts as one
+column. No menu this program builds contains one; the limit is stated rather
+than papered over with a table that would cover less than it claimed.
+
+Neutralisation runs before truncation, never after, so a cut can never divide a
+`\xNN` form back into a live escape.
+
+The key hint under each menu has a UTF-8 and an ASCII form, chosen by a
+predicate over `LC_ALL`, `LC_CTYPE`, and `LANG`. A terminal that cannot render
+an arrow would also count its three bytes as three columns, which is the same
+line-count error by another route.
+
+A resize between two paints is not handled. `painted_` records how many rows
+the previous block occupied at the width in force when it was drawn, so a
+narrowing mid-menu can leave one stale row behind until the next menu opens.
+Correcting it needs a `SIGWINCH` handler, and the bar for what a handler in this
+program may call is set by the terminal-restoring handlers above; the limit is
+stated rather than met.
+
+The fallback path — stdin a pipe, or `--non-interactive` — emits no cursor
+control of any kind, because nothing may write an escape sequence to something
+that is not a terminal.
+
+Reading a key uses `VMIN 1`, `VTIME 0`, so an ordinary keypress blocks rather
+than spins. The continuation of an escape sequence is read with `VMIN 0`,
+`VTIME 1` instead: with the blocking settings a lone Escape waits for a byte
+that never arrives, which at the keyboard is indistinguishable from a hung
+program. The timeout is restored immediately after the sequence.
+
 ## What is deliberately absent
 
 There is no decision engine, no resolved angle, no test statistic, no interval

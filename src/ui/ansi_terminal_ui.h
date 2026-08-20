@@ -2,6 +2,7 @@
 
 #include "ui/terminal_ui.h"
 
+#include <cstddef>
 #include <string>
 
 namespace rtlangle::ui {
@@ -10,6 +11,12 @@ namespace rtlangle::ui {
 // --no-color was not given. Written as a predicate rather than a constant so a
 // test can assert the RULE; CTest does not guarantee whether stdout is a pipe.
 bool color_enabled(bool no_color_requested);
+
+// True when the locale environment names UTF-8. A terminal that cannot render
+// an arrow would also count its three bytes as three columns, which would wrap
+// the hint line and put the repaint's line count out by one, so the key hint
+// has an ASCII form for that case. A predicate, for the same reason as above.
+bool unicode_enabled();
 
 // Installs the SIGINT and SIGTERM handlers that restore the terminal.
 //
@@ -22,6 +29,43 @@ void install_signal_handlers();
 
 // True while raw mode is active, for the pty test to observe.
 bool raw_mode_active();
+
+// ---------------------------------------------------------------------------
+// Menu painting
+//
+// A menu repaints by moving the cursor up over the block it last drew and
+// clearing from there. That is only correct while the number of lines drawn
+// equals the number of physical rows they occupy, so every line is truncated
+// to the terminal width before it is written. Without the truncation a single
+// over-wide line wraps, the count is short, and each keystroke smears a
+// partial copy of the menu down the screen instead of replacing it.
+//
+// Width is counted in UTF-8 code points. A double-width glyph therefore counts
+// as one column; no menu built by this program contains one, and stating the
+// limit is preferable to a table that would pretend to more than it covers.
+// ---------------------------------------------------------------------------
+
+// Physical columns available: TIOCGWINSZ, then COLUMNS, then 80. Never zero.
+std::size_t terminal_width();
+
+// The line that names the keys a menu accepts, in a UTF-8 and an ASCII form.
+std::string_view menu_key_hint(bool unicode);
+
+struct MenuLine {
+  enum class Style { Plain, Title, Hint };
+  std::string text;
+  Style       style = Style::Plain;
+};
+
+// The exact physical lines a menu occupies: a blank, the title, one per item,
+// then a blank and the key hint when `include_hint`. Text is neutralised and
+// then truncated, in that order, so truncation can never cut a neutralised
+// sequence back into a live one.
+std::vector<MenuLine> menu_lines(std::string_view title, std::span<const MenuItem> items,
+                                 int cursor, std::size_t width, bool include_hint);
+
+// Code points, not bytes. See the note on width above.
+std::size_t display_width(std::string_view);
 
 class AnsiTerminalUi final : public ITerminalUi {
  public:

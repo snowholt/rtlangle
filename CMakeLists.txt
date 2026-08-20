@@ -36,6 +36,9 @@ endif()
 # rtlangle_core
 # ---------------------------------------------------------------------------
 set(RTLANGLE_CORE_SOURCES
+    src/core/angle_math.cpp
+    src/core/config.cpp
+    src/core/records.cpp
     src/core/db.cpp
     src/core/statistics.cpp
 )
@@ -68,6 +71,9 @@ set(RTLANGLE_TEST_SOURCES
     tests/test_main.cpp
     tests/test_fftw_link.cpp
     tests/test_core_numeric.cpp
+    tests/test_angle_math.cpp
+    tests/test_config.cpp
+    tests/test_records.cpp
 )
 
 add_executable(rtlangle_tests ${RTLANGLE_TEST_SOURCES})

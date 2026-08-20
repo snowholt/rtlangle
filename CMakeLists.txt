@@ -46,6 +46,13 @@ set(RTLANGLE_CORE_SOURCES
     src/dsp/framer.cpp
     src/dsp/offset_mixer.cpp
     src/dsp/spectrum.cpp
+    src/experiment/capture_runner.cpp
+    src/persist/path_safety.cpp
+    src/source/iq_file_source.cpp
+    src/source/rtlsdr_source.cpp
+    src/source/sample_ring.cpp
+    src/source/source_factory.cpp
+    src/source/synthetic_source.cpp
     src/core/db.cpp
     src/core/statistics.cpp
 )
@@ -60,6 +67,8 @@ target_link_libraries(rtlangle_core
 
 if(RTLANGLE_WITH_RTLSDR)
   target_compile_definitions(rtlangle_core PUBLIC RTLANGLE_WITH_RTLSDR=1)
+  target_compile_definitions(rtlangle_core PRIVATE
+                             RTLANGLE_LIBRTLSDR_VERSION="${LIBRTLSDR_VERSION}")
   target_link_libraries(rtlangle_core PUBLIC PkgConfig::LIBRTLSDR)
 else()
   target_compile_definitions(rtlangle_core PUBLIC RTLANGLE_WITH_RTLSDR=0)
@@ -82,6 +91,8 @@ set(RTLANGLE_TEST_SOURCES
     tests/test_config.cpp
     tests/test_records.cpp
     tests/test_dsp.cpp
+    tests/test_sources.cpp
+    tests/test_capture_runner.cpp
 )
 
 add_executable(rtlangle_tests ${RTLANGLE_TEST_SOURCES})

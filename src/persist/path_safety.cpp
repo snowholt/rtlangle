@@ -98,3 +98,56 @@ std::string basename_of(std::string_view path) {
 }
 
 }  // namespace rtlangle
+
+namespace rtlangle {
+namespace {
+
+bool allowed(char c) {
+  return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+         c == '.' || c == '_' || c == '-';
+}
+
+void strip_ends(std::string& s) {
+  std::size_t first = 0;
+  while (first < s.size() && (s[first] == '.' || s[first] == '-')) ++first;
+  std::size_t last = s.size();
+  while (last > first && (s[last - 1] == '.' || s[last - 1] == '-')) --last;
+  s = s.substr(first, last - first);
+}
+
+}  // namespace
+
+std::string slugify_label(std::string_view label) {
+  // 1: every character outside the allowed set becomes '-', which removes '/'
+  //    and every other separator.
+  std::string s;
+  s.reserve(label.size());
+  for (char c : label) s.push_back(allowed(c) ? c : '-');
+
+  // 2: collapse runs of '-' AND runs of '.'. The dot-run collapse is what makes
+  //    ".." unrepresentable anywhere in the output.
+  std::string collapsed;
+  collapsed.reserve(s.size());
+  for (char c : s) {
+    if ((c == '-' || c == '.') && !collapsed.empty() && collapsed.back() == c) continue;
+    collapsed.push_back(c);
+  }
+
+  // 3, 4: strip, truncate, strip again because the truncation can expose an end
+  //       character.
+  strip_ends(collapsed);
+  if (collapsed.size() > 32) collapsed.resize(32);
+  strip_ends(collapsed);
+
+  // 5.
+  if (collapsed.empty() || collapsed == "." || collapsed == "..") return {};
+  return collapsed;
+}
+
+bool valid_directory_component(std::string_view name) {
+  if (name.empty()) return false;
+  if (name == "." || name == "..") return false;
+  return name.find('/') == std::string_view::npos;
+}
+
+}  // namespace rtlangle

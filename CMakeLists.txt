@@ -39,6 +39,7 @@ set(RTLANGLE_CORE_SOURCES
     src/core/angle_math.cpp
     src/core/config.cpp
     src/core/records.cpp
+    src/core/utc.cpp
     src/dsp/am_demodulator.cpp
     src/dsp/chain.cpp
     src/dsp/fir_decimator.cpp
@@ -50,7 +51,11 @@ set(RTLANGLE_CORE_SOURCES
     src/metrics/event_detector.cpp
     src/metrics/noise_floor.cpp
     src/metrics/snr_estimator.cpp
+    src/persist/atomic_write.cpp
+    src/persist/csv.cpp
+    src/persist/json_session_store.cpp
     src/persist/path_safety.cpp
+    src/persist/session_loader.cpp
     src/source/iq_file_source.cpp
     src/source/rtlsdr_source.cpp
     src/source/sample_ring.cpp
@@ -99,6 +104,8 @@ set(RTLANGLE_TEST_SOURCES
     tests/test_event_detector.cpp
     tests/test_noise_floor.cpp
     tests/test_snr_estimator.cpp
+    tests/test_persist.cpp
+    tests/test_resume.cpp
 )
 
 add_executable(rtlangle_tests ${RTLANGLE_TEST_SOURCES})

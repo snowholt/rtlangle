@@ -11,7 +11,8 @@ namespace rtlangle {
 
 // Production code, not a test fixture: SyntheticSource is a production source
 // type selected by `--source synthetic`, so it lives under src/. Tests may call
-// it; production never includes anything from tests/ (spec section 5).
+// it; production never includes anything from the test-support directory
+// (spec section 5).
 struct SyntheticParams {
   // Receiver geometry, so the generated stream is what a device tuned to
   // center_hz + offset_hz would deliver: the wanted carrier sits at baseband

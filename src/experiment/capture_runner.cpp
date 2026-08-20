@@ -1,5 +1,7 @@
 #include "experiment/capture_runner.h"
 
+#include "core/utc.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -52,7 +54,7 @@ CaptureOutcome CaptureRunner::run(const std::function<void(double)>& on_progress
   const double budget_s = cfg_.duration_s * cfg_.read_timeout_factor + cfg_.read_timeout_slack_s;
 
   // Rule 1: started_utc is sampled BEFORE the first read.
-  out.started_utc = std::chrono::system_clock::now();
+  out.started_utc = now();
   const auto steady_start = std::chrono::steady_clock::now();
   const auto deadline =
       steady_start + std::chrono::duration_cast<std::chrono::steady_clock::duration>(

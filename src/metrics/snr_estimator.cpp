@@ -2,24 +2,15 @@
 
 #include "core/db.h"
 #include "core/statistics.h"
+#include "core/utc.h"
 #include "dsp/framer.h"
 
 #include <algorithm>
 #include <cmath>
-#include <ctime>
 #include <vector>
 
 namespace rtlangle::metrics {
 namespace {
-
-std::string format_utc(std::chrono::system_clock::time_point tp) {
-  const std::time_t t = std::chrono::system_clock::to_time_t(tp);
-  std::tm tm{};
-  ::gmtime_r(&t, &tm);
-  char buf[32];
-  std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
-  return buf;
-}
 
 Percentiles percentiles_of(const std::vector<double>& xs) {
   Percentiles p;
@@ -94,7 +85,7 @@ void estimate_snr(const CaptureOutcome& capture, const NoiseFloor& channel_floor
     EventRecord r;
     r.start_s = frame_start_s(e.first_frame, cfg.channel_rate_hz);
     r.duration_s = event_duration_s(e, cfg.channel_rate_hz);
-    r.utc = format_utc(capture.started_utc +
+    r.utc = rtlangle::format_utc(capture.started_utc +
                        std::chrono::duration_cast<std::chrono::system_clock::duration>(
                            std::chrono::duration<double>(r.start_s)));
     r.truncated = e.truncated;

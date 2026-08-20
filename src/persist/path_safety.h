@@ -43,4 +43,28 @@ std::optional<std::string> read_file_limited(std::string_view path, std::size_t 
 // The final component of a path, used for a source's device_name.
 std::string basename_of(std::string_view path);
 
+// Spec section 13.3. `--label` becomes a SINGLE path component and is never
+// treated as a path. The algorithm, in this order:
+//
+//   1  replace every character outside [A-Za-z0-9._-] with '-'
+//   2  collapse runs of '-' to one, AND runs of '.' to one
+//   3  strip leading and trailing '.' and '-'
+//   4  truncate to 32 characters, then strip trailing '.' and '-' again,
+//      because the truncation can expose one
+//   5  if the result is empty, "." or "..", the label is dropped entirely
+//
+// Step 2's dot-run collapse is what makes ".." unrepresentable: after it no two
+// dots are adjacent, so no substring ".." exists anywhere in the result, not
+// merely at the start. A rule that stripped only LEADING dots would let "a..b"
+// through unchanged while claiming that ".." can never appear.
+//
+// The guarantee: the output contains no '/', no substring "..", and is neither
+// "." nor "..". An input that cannot satisfy that yields an empty string, which
+// the caller drops.
+std::string slugify_label(std::string_view);
+
+// The invariant sanitisation exists to satisfy. An assembled directory name
+// must contain no '/', and must be neither "." nor "..".
+bool valid_directory_component(std::string_view);
+
 }  // namespace rtlangle

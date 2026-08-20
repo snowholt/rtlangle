@@ -36,7 +36,11 @@ endif()
 # rtlangle_core
 # ---------------------------------------------------------------------------
 set(RTLANGLE_CORE_SOURCES
+    src/app/cli_parser.cpp
     src/app/device_check.cpp
+    src/app/menus.cpp
+    src/app/run_command.cpp
+    src/app/scan_command.cpp
     src/core/angle_math.cpp
     src/core/config.cpp
     src/core/records.cpp
@@ -125,6 +129,9 @@ set(RTLANGLE_TEST_SOURCES
     tests/test_aggregation.cpp
     tests/test_quality_checks.cpp
     tests/test_report.cpp
+    tests/test_cli.cpp
+    tests/test_scan.cpp
+    tests/test_commands.cpp
 )
 
 add_executable(rtlangle_tests ${RTLANGLE_TEST_SOURCES})

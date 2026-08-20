@@ -176,6 +176,11 @@ class FaultStore final : public ISessionStore {
 
   // Forced outcomes. An unset optional means "pass through to the inner store".
   std::optional<CommitOutcome> commit_outcome;
+  // The forced commit outcome applies from this call number onward, counting
+  // from one. The default of zero applies it to every call; setting it to one
+  // lets the first commit succeed, which is how "a crash after a retry commit"
+  // is reproduced at controller level.
+  int commit_fault_after = 0;
   std::optional<CommitOutcome> reload_outcome;
   std::optional<CommitOutcome> pause_outcome;
   std::optional<CommitOutcome> finalize_outcome;
@@ -202,7 +207,7 @@ class FaultStore final : public ISessionStore {
   CommitResult commit_visit(const VisitCommit& commit) override {
     ++commit_calls;
     commits.push_back(commit);
-    if (commit_outcome.has_value()) {
+    if (commit_outcome.has_value() && commit_calls > commit_fault_after) {
       CommitResult r;
       r.outcome = *commit_outcome;
       r.detail = "injected " + std::string(to_string(*commit_outcome));

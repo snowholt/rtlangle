@@ -49,6 +49,8 @@ set(RTLANGLE_CORE_SOURCES
     src/dsp/offset_mixer.cpp
     src/dsp/spectrum.cpp
     src/experiment/capture_runner.cpp
+    src/experiment/controller.cpp
+    src/experiment/visit_plan.cpp
     src/metrics/event_detector.cpp
     src/metrics/noise_floor.cpp
     src/metrics/snr_estimator.cpp
@@ -115,6 +117,8 @@ set(RTLANGLE_TEST_SOURCES
     tests/test_ui.cpp
     tests/test_angle_provider.cpp
     tests/test_terminal_pty.cpp
+    tests/test_visit_plan.cpp
+    tests/test_controller.cpp
 )
 
 add_executable(rtlangle_tests ${RTLANGLE_TEST_SOURCES})

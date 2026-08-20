@@ -47,6 +47,9 @@ set(RTLANGLE_CORE_SOURCES
     src/dsp/offset_mixer.cpp
     src/dsp/spectrum.cpp
     src/experiment/capture_runner.cpp
+    src/metrics/event_detector.cpp
+    src/metrics/noise_floor.cpp
+    src/metrics/snr_estimator.cpp
     src/persist/path_safety.cpp
     src/source/iq_file_source.cpp
     src/source/rtlsdr_source.cpp
@@ -93,6 +96,9 @@ set(RTLANGLE_TEST_SOURCES
     tests/test_dsp.cpp
     tests/test_sources.cpp
     tests/test_capture_runner.cpp
+    tests/test_event_detector.cpp
+    tests/test_noise_floor.cpp
+    tests/test_snr_estimator.cpp
 )
 
 add_executable(rtlangle_tests ${RTLANGLE_TEST_SOURCES})

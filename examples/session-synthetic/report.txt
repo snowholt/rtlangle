@@ -1,0 +1,37 @@
+rtlangle session 20260817-205320-example
+started 2026-08-17T20:53:20Z, finished 2026-08-17T20:53:20Z, state completed
+angle reference: marked arm along the balcony rail, pointing at the street
+setup note: dipole 1.2 m above the balcony floor, feedline along the rail
+3 angles over 2 round(s), 1 s per capture, alternating order, seed 20260819
+weakest SNR this squelch can report: 4.74 dB at open_db 6.0
+
+Channel ranking (carrier-plus-sideband to noise, in the channel bandwidth)
+planned  actual  spread  chan dB  capture spread          events/min  detected  n  excl  events  floor dBFS  floor span  warnings
+-------  ------  ------  -------  ----------------------  ----------  --------  -  ----  ------  ----------  ----------  --------
+0.0      0.0     0.0     43.06    43.0 to 43.1 (min-max)  100.00      0.311     2  0     4       -51.8       0.1         W1      
+45.0     45.0    0.0     38.10    38.0 to 38.2 (min-max)  100.00      0.311     2  0     4       -51.8       0.1         W1      
+90.0     90.0    0.0     33.00    32.9 to 33.1 (min-max)  100.00      0.311     2  0     4       -51.7       0.2         W1      
+  The spread column is the range the contributing captures covered: min-max below four captures, interquartile at four or more. It describes how much they varied. It is not an interval estimate and carries no claim about repeatability.
+  The yield column is how many transmissions per minute the angle heard. A score without it cannot be read: a higher score can mean the angle received better, or that it heard only the loud ones.
+  Where n is 2, the median shown is the mean of the two capture scores.
+
+Audio ranking (after demodulation, 300-3400 Hz)
+planned  actual  spread  audio dB  capture spread          events/min  detected  n  excl  events  floor dBFS  floor span  warnings
+-------  ------  ------  --------  ----------------------  ----------  --------  -  ----  ------  ----------  ----------  --------
+0.0      0.0     0.0     39.25     39.2 to 39.3 (min-max)  100.00      0.311     2  0     4       -51.8       0.1         W1      
+45.0     45.0    0.0     34.44     34.3 to 34.6 (min-max)  100.00      0.311     2  0     4       -51.8       0.1         W1      
+90.0     90.0    0.0     29.35     29.1 to 29.6 (min-max)  100.00      0.311     2  0     4       -51.7       0.2         W1      
+  The spread column is the range the contributing captures covered: min-max below four captures, interquartile at four or more. It describes how much they varied. It is not an interval estimate and carries no claim about repeatability.
+  The yield column is how many transmissions per minute the angle heard. A score without it cannot be read: a higher score can mean the angle received better, or that it heard only the loud ones.
+  Where n is 2, the median shown is the mean of the two capture scores.
+
+Data-quality warnings
+W1  Fewer than 4 accepted captures stand behind the median at 0.0 deg (2), 45.0 deg (2), 90.0 deg (2). Those positions in the ranking may move with one more round.
+
+Comparability notes
+- 3 event(s) were open at the first or last frame of their capture. Their true extent is unknown, so they are recorded for audit and excluded from every metric.
+
+Exploratory ranking only. These are the reception qualities measured at each
+angle under the traffic that happened to occur. This tool does not determine
+which angle is best, and it is NOT a measurement of the transmitter's physical
+direction.
